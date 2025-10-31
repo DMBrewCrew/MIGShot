@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Facebook Post Capture</title>
+  <style>
+    body {
+      width: 400px;
+      padding: 15px;
+      font-family: Arial, sans-serif;
+      margin: 0;
+    }
+    
+    h2 {
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      color: #333;
+    }
+    
+    button {
+      width: 100%;
+      padding: 12px;
+      background-color: #1877f2;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      margin-bottom: 15px;
+    }
+    
+    button:hover {
+      background-color: #166fe5;
+    }
+    
+    button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+    
+    .btn-secondary {
+      background-color: #42b72a;
+      margin-bottom: 15px;
+    }
+    
+    .btn-secondary:hover {
+      background-color: #36a420;
+    }
+    
+    .btn-archive {
+      background-color: #8b5cf6;
+      margin-top: 10px;
+    }
+    
+    .btn-archive:hover {
+      background-color: #7c3aed;
+    }
+    
+    .results {
+      display: none;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 15px;
+      background-color: #f8f9fa;
+    }
+    
+    .results.active {
+      display: block;
+    }
+    
+    .data-item {
+      margin-bottom: 15px;
+    }
+    
+    .data-item:last-child {
+      margin-bottom: 0;
+    }
+    
+    .data-label {
+      font-weight: bold;
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 5px;
+    }
+    
+    .data-value {
+      background-color: white;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 8px;
+      font-size: 13px;
+      word-break: break-all;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    
+    .data-value:hover {
+      background-color: #e7f3ff;
+    }
+    
+    .copy-btn {
+      padding: 6px 12px;
+      background-color: #42b72a;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      margin-top: 5px;
+      width: auto;
+    }
+    
+    .copy-btn:hover {
+      background-color: #36a420;
+    }
+    
+    .copied {
+      color: #42b72a;
+      font-size: 11px;
+      margin-left: 8px;
+      display: none;
+    }
+    
+    .copied.show {
+      display: inline;
+    }
+    
+    .error {
+      color: #e74c3c;
+      padding: 10px;
+      background-color: #fadbd8;
+      border-radius: 4px;
+      font-size: 13px;
+      display: none;
+    }
+    
+    .error.show {
+      display: block;
+      margin-top: 10px;
+    }
+    
+    .screenshot-preview {
+      width: 100%;
+      max-height: 200px;
+      object-fit: contain;
+      border-radius: 4px;
+      margin-top: 5px;
+      border: 1px solid #ddd;
+    }
+    
+    .keyboard-hint {
+      text-align: center;
+      font-size: 11px;
+      color: #999;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2>📸 Facebook Post Capture</h2>
+  
+  <button id="archiveBtn">📦 Archive This Post</button>
+  
+  <button id="openArchiveBtn" class="btn-secondary">📁 Open Archive</button>
+  
+  <div class="error" id="error"></div>
+  
+  <div class="keyboard-hint">💡 Tip: Press Ctrl+M anywhere on Facebook to archive</div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
