@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>MIGShot</title>
+  <style>
+    body {
+      width: 350px;
+      padding: 15px;
+      font-family: Arial, sans-serif;
+      margin: 0;
+    }
+    
+    h2 {
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      color: #333;
+    }
+    
+    button {
+      width: 100%;
+      padding: 12px;
+      background-color: #1877f2;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      margin-bottom: 10px;
+    }
+    
+    button:hover {
+      background-color: #166fe5;
+    }
+    
+    button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+    
+    .btn-secondary {
+      background-color: #42b72a;
+    }
+    
+    .btn-secondary:hover {
+      background-color: #36a420;
+    }
+    
+    .error {
+      color: #e74c3c;
+      padding: 10px;
+      background-color: #fadbd8;
+      border-radius: 4px;
+      font-size: 13px;
+      display: none;
+      margin-top: 10px;
+    }
+    
+    .error.show {
+      display: block;
+    }
+    
+    .hint {
+      text-align: center;
+      font-size: 11px;
+      color: #666;
+      margin-top: 10px;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <h2>📸 MIGShot</h2>
+  
+  <button id="archiveBtn">📦 Archive This Post</button>
+  
+  <button id="openArchiveBtn" class="btn-secondary">📁 Open Archive</button>
+  
+  <div class="error" id="error"></div>
+  
+  <div class="hint">
+    Add dates in the archive view<br>
+    (Date badges only for 2025 posts)<br>
+    <br>
+    💡 Works on Facebook & Instagram<br>
+    Feed posts auto-crop to modal
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
