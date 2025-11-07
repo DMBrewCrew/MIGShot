@@ -392,17 +392,21 @@ function redrawCanvas() {
   // Apply highlights from mask if there are any in history
   if (maskCanvas && tempCanvas && drawHistory.some(a => a.type === 'highlight')) {
     ctx.save();
+    tempCtx.save(); // CRITICAL: Save tempCtx state to prevent composite operation from persisting
 
     // Clear temp canvas
     tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
 
-    // Draw the mask to temp canvas
+    // Draw the mask to temp canvas (must use default 'source-over' composite operation)
     tempCtx.drawImage(maskCanvas, 0, 0);
 
     // Keep only where mask has alpha, and color it yellow
     tempCtx.globalCompositeOperation = 'source-in';
     tempCtx.fillStyle = '#FFD700'; // Bright gold/yellow
     tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+    // Restore tempCtx to reset globalCompositeOperation back to default
+    tempCtx.restore();
 
     // Now draw the colorized highlight to main canvas with multiply blend
     ctx.globalCompositeOperation = 'multiply';
