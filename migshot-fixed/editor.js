@@ -1,15 +1,24 @@
 // Editor.js - Full tab image editor for MIGShot
+//
+// PERSISTENT MULTI-HIGHLIGHT & ARROW SYSTEM:
+// - Highlights: Drawn to a mask canvas that accumulates all highlight strokes
+//   Each new highlight ADDS to the mask, making all highlights persistent
+// - Arrows: Stored in drawHistory array and redrawn on every canvas update
+//   All arrows remain visible and persist across drawing operations
+// - Both highlights and arrows support undo/redo through drawHistory
+// - Multiple highlights and arrows can coexist simultaneously
+
 let canvas, ctx;
 let originalImage = null;
 let currentTool = null;
 let isDrawing = false;
-let drawHistory = [];
+let drawHistory = []; // Stores all highlights and arrows for persistence and undo
 let currentStroke = [];
 let arrowStart = null;
 let captureIndex = null;
 let currentZoom = 1;
 
-// Mask canvas for highlights
+// Mask canvas for highlights - accumulates all highlight strokes
 let maskCanvas, maskCtx;
 // Temp canvas for colorizing (created once, reused)
 let tempCanvas, tempCtx;
@@ -197,36 +206,43 @@ function handleCanvasMouseMove(e) {
 
 function handleCanvasMouseUp(e) {
   if (!isDrawing) return;
-  
+
   const rect = canvas.getBoundingClientRect();
   // Get actual canvas coordinates accounting for CSS scaling
   const scaleX = canvas.width / rect.width;
   const scaleY = canvas.height / rect.height;
   const x = (e.clientX - rect.left) * scaleX;
   const y = (e.clientY - rect.top) * scaleY;
-  
+
   isDrawing = false;
-  
+
   if (currentTool === 'highlight' && currentStroke.length > 0) {
-    // Draw the final stroke to the mask (not preview)
+    // Draw the final stroke to the mask (accumulates with previous highlights)
+    // This makes highlights persistent - each new highlight adds to the mask
     drawHighlightStroke(currentStroke, false);
-    
+
+    // Store in history for undo/redo support
     drawHistory.push({
       type: 'highlight',
       points: [...currentStroke]
     });
     currentStroke = [];
+
+    // Redraw canvas to show all persistent highlights and arrows
     redrawCanvas();
   } else if (currentTool === 'arrow' && arrowStart) {
+    // Store arrow in history - arrows are also persistent
     drawHistory.push({
       type: 'arrow',
       start: {...arrowStart},
       end: {x, y}
     });
     arrowStart = null;
+
+    // Redraw canvas to show all persistent highlights and arrows
     redrawCanvas();
   }
-  
+
   updateActionCount();
 }
 
@@ -259,24 +275,31 @@ function handleTouchEnd(e) {
 
 function drawHighlightStroke(points, isPreview = false) {
   if (points.length < 1) return;
-  
+
   // For actual drawing (not preview), draw to mask
+  // IMPORTANT: This accumulates on the mask - does not clear previous highlights
   if (!isPreview) {
+    // Save mask context state
+    maskCtx.save();
+
     // Draw to mask (stores coverage as alpha, not color)
+    // This will ADD to existing mask content, making highlights persistent
     maskCtx.strokeStyle = 'rgba(0, 0, 0, 1)'; // Opaque black for mask
     maskCtx.lineWidth = 35;
     maskCtx.lineCap = 'round';
     maskCtx.lineJoin = 'round';
-    
+
     if (points.length === 1) {
+      // Single point - draw a circle
       maskCtx.beginPath();
       maskCtx.arc(points[0].x, points[0].y, 17.5, 0, Math.PI * 2);
       maskCtx.fillStyle = 'rgba(0, 0, 0, 1)';
       maskCtx.fill();
     } else {
+      // Multiple points - draw a smooth stroke
       maskCtx.beginPath();
       maskCtx.moveTo(points[0].x, points[0].y);
-      
+
       if (points.length === 2) {
         maskCtx.lineTo(points[1].x, points[1].y);
       } else {
@@ -288,9 +311,12 @@ function drawHighlightStroke(points, isPreview = false) {
         }
         maskCtx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
       }
-      
+
       maskCtx.stroke();
     }
+
+    // Restore mask context state
+    maskCtx.restore();
   }
   
   // For preview, draw directly to main canvas with transparency
@@ -362,36 +388,30 @@ function redrawCanvas() {
   if (originalImage) {
     ctx.drawImage(originalImage, 0, 0);
   }
-  
-  // Apply highlights from mask if there are any
-  if (maskCanvas && tempCanvas) {
-    // Check if mask has any content
-    const maskData = maskCtx.getImageData(0, 0, 1, 1);
-    const hasContent = maskData.data[3] > 0;
-    
-    if (hasContent || drawHistory.some(a => a.type === 'highlight')) {
-      ctx.save();
-      
-      // Clear temp canvas
-      tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
-      
-      // Draw the mask to temp canvas
-      tempCtx.drawImage(maskCanvas, 0, 0);
-      
-      // Keep only where mask has alpha, and color it yellow
-      tempCtx.globalCompositeOperation = 'source-in';
-      tempCtx.fillStyle = '#FFD700'; // Bright gold/yellow
-      tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-      
-      // Now draw the colorized highlight to main canvas with multiply blend
-      ctx.globalCompositeOperation = 'multiply';
-      ctx.drawImage(tempCanvas, 0, 0);
-      
-      ctx.restore();
-    }
+
+  // Apply highlights from mask if there are any in history
+  if (maskCanvas && tempCanvas && drawHistory.some(a => a.type === 'highlight')) {
+    ctx.save();
+
+    // Clear temp canvas
+    tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+    // Draw the mask to temp canvas
+    tempCtx.drawImage(maskCanvas, 0, 0);
+
+    // Keep only where mask has alpha, and color it yellow
+    tempCtx.globalCompositeOperation = 'source-in';
+    tempCtx.fillStyle = '#FFD700'; // Bright gold/yellow
+    tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+    // Now draw the colorized highlight to main canvas with multiply blend
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.drawImage(tempCanvas, 0, 0);
+
+    ctx.restore();
   }
-  
-  // Redraw arrows on top
+
+  // Redraw arrows on top - ensures all arrows persist
   drawHistory.forEach(action => {
     if (action.type === 'arrow') {
       drawArrow(action.start.x, action.start.y, action.end.x, action.end.y);
@@ -401,21 +421,24 @@ function redrawCanvas() {
 
 function undoLastAction() {
   if (drawHistory.length > 0) {
+    // Remove the most recent action (highlight or arrow)
     drawHistory.pop();
-    
+
     // Clear mask and rebuild from remaining highlight history
+    // This ensures all remaining highlights persist after undo
     if (maskCtx && maskCanvas) {
       maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
-      
-      // Redraw all remaining highlights to mask
+
+      // Redraw all remaining highlights to mask to maintain persistence
       drawHistory.forEach(action => {
         if (action.type === 'highlight') {
-          // Redraw to mask (not preview)
+          // Redraw to mask (not preview) - rebuilds the persistent highlight layer
           drawHighlightStroke(action.points, false);
         }
       });
     }
-    
+
+    // Redraw canvas with all remaining persistent highlights and arrows
     redrawCanvas();
     updateActionCount();
     showToast('Action undone', 'success');
@@ -425,11 +448,15 @@ function undoLastAction() {
 function clearAllEdits() {
   if (drawHistory.length > 0) {
     if (confirm('Clear all edits? This cannot be undone.')) {
+      // Clear all persistent highlights and arrows
       drawHistory = [];
-      // Clear mask canvas if it exists
+
+      // Clear the mask canvas (removes all persistent highlights)
       if (maskCtx && maskCanvas) {
         maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
       }
+
+      // Redraw canvas with only the original image (no highlights or arrows)
       redrawCanvas();
       updateActionCount();
       showToast('All edits cleared', 'success');
