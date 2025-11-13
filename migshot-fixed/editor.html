@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MIGShot Image Editor</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a1a;
+      color: #fff;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Header Toolbar */
+    .toolbar {
+      background: #2d2d2d;
+      padding: 15px 20px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+      border-bottom: 1px solid #3d3d3d;
+    }
+
+    .toolbar-section {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .divider {
+      width: 1px;
+      height: 30px;
+      background: #444;
+    }
+
+    .tool-btn {
+      background: #3d3d3d;
+      color: #fff;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .tool-btn:hover {
+      background: #4d4d4d;
+      transform: translateY(-1px);
+    }
+
+    .tool-btn.active {
+      background: #9B9565;
+      color: #1a1a1a;
+    }
+
+    .tool-btn.danger {
+      background: #d32f2f;
+    }
+
+    .tool-btn.danger:hover {
+      background: #e53935;
+    }
+
+    .tool-btn.success {
+      background: #388e3c;
+    }
+
+    .tool-btn.success:hover {
+      background: #43a047;
+    }
+
+    /* Canvas Container */
+    .canvas-container {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: auto;
+      padding: 20px;
+      background: #1a1a1a;
+      background-image: 
+        linear-gradient(45deg, #222 25%, transparent 25%),
+        linear-gradient(-45deg, #222 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #222 75%),
+        linear-gradient(-45deg, transparent 75%, #222 75%);
+      background-size: 20px 20px;
+      background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+    }
+
+    #editorCanvas {
+      max-width: 100%;
+      max-height: 100%;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+      background: white;
+      cursor: crosshair;
+    }
+
+    /* Info Panel */
+    .info-panel {
+      position: fixed;
+      top: 80px;
+      right: 20px;
+      background: rgba(0,0,0,0.8);
+      padding: 15px;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #999;
+      backdrop-filter: blur(10px);
+    }
+
+    .info-item {
+      margin-bottom: 8px;
+    }
+
+    .info-label {
+      color: #666;
+      margin-right: 5px;
+    }
+
+    /* Loading Spinner */
+    .loading {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 18px;
+      color: #9B9565;
+    }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: #333;
+      color: #fff;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-size: 14px;
+      opacity: 0;
+      transition: all 0.3s;
+      pointer-events: none;
+      z-index: 1000;
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+
+    .toast.success {
+      background: #388e3c;
+    }
+
+    .toast.error {
+      background: #d32f2f;
+    }
+
+    /* Zoom Controls */
+    .zoom-controls {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      gap: 10px;
+      background: rgba(0,0,0,0.8);
+      padding: 10px;
+      border-radius: 8px;
+      backdrop-filter: blur(10px);
+    }
+
+    .zoom-btn {
+      background: #3d3d3d;
+      color: #fff;
+      border: none;
+      width: 36px;
+      height: 36px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .zoom-btn:hover {
+      background: #4d4d4d;
+    }
+
+    .zoom-level {
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      font-size: 14px;
+      color: #999;
+      min-width: 60px;
+      justify-content: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <div class="toolbar-section">
+      <button id="highlightTool" class="tool-btn">
+        <span>🖍️</span> Highlight
+      </button>
+      <button id="arrowTool" class="tool-btn">
+        <span>➜</span> Arrow
+      </button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="toolbar-section">
+      <button id="undoBtn" class="tool-btn">
+        <span>↶</span> Undo
+      </button>
+      <button id="clearBtn" class="tool-btn">
+        <span>🗑️</span> Clear All
+      </button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="toolbar-section" style="margin-left: auto;">
+      <button id="cancelBtn" class="tool-btn danger">
+        <span>✕</span> Cancel
+      </button>
+      <button id="saveBtn" class="tool-btn success">
+        <span>✓</span> Save Changes
+      </button>
+    </div>
+  </div>
+
+  <div class="canvas-container">
+    <div class="loading" id="loading">Loading image...</div>
+    <canvas id="editorCanvas" style="display: none;"></canvas>
+  </div>
+
+  <div class="info-panel">
+    <div class="info-item">
+      <span class="info-label">Tool:</span>
+      <span id="currentToolDisplay">None</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Actions:</span>
+      <span id="actionCount">0</span>
+    </div>
+  </div>
+
+  <div class="zoom-controls">
+    <button id="zoomOut" class="zoom-btn">−</button>
+    <div class="zoom-level" id="zoomLevel">100%</div>
+    <button id="zoomIn" class="zoom-btn">+</button>
+    <button id="zoomFit" class="zoom-btn" title="Fit to window">⊡</button>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="editor.js"></script>
+</body>
+</html>
