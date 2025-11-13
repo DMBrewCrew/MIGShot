@@ -187,6 +187,10 @@ async function captureSelectedArea(tabId, bounds, platform, url) {
   }
 }
 
+// ============================================================================
+// DUPLICATE DETECTION UTILITIES
+// ============================================================================
+
 // Analyze if a segment is mostly blank (>95% white/transparent pixels)
 async function isBlankSegment(base64Image) {
   try {
@@ -237,11 +241,314 @@ async function isBlankSegment(base64Image) {
   }
 }
 
+// TECHNIQUE #1: Perceptual Hash (pHash) - Generate visual fingerprint
+async function generatePerceptualHash(base64Image) {
+  try {
+    const response = await fetch(base64Image);
+    const blob = await response.blob();
+    const bitmap = await createImageBitmap(blob);
+
+    // Resize to 8x8 for pHash (standard size)
+    const hashSize = 8;
+    const canvas = new OffscreenCanvas(hashSize, hashSize);
+    const ctx = canvas.getContext('2d');
+
+    // Convert to grayscale and resize
+    ctx.drawImage(bitmap, 0, 0, hashSize, hashSize);
+    bitmap.close();
+
+    const imageData = ctx.getImageData(0, 0, hashSize, hashSize);
+    const pixels = imageData.data;
+
+    // Convert to grayscale values
+    const gray = [];
+    for (let i = 0; i < pixels.length; i += 4) {
+      const grayValue = pixels[i] * 0.299 + pixels[i + 1] * 0.587 + pixels[i + 2] * 0.114;
+      gray.push(grayValue);
+    }
+
+    // Calculate average
+    const avg = gray.reduce((a, b) => a + b, 0) / gray.length;
+
+    // Generate hash: 1 if above average, 0 if below
+    let hash = '';
+    for (let i = 0; i < gray.length; i++) {
+      hash += gray[i] > avg ? '1' : '0';
+    }
+
+    return hash;
+  } catch (error) {
+    console.log('Error generating perceptual hash:', error);
+    return null;
+  }
+}
+
+// Compare two perceptual hashes (Hamming distance)
+function compareHashes(hash1, hash2) {
+  if (!hash1 || !hash2 || hash1.length !== hash2.length) {
+    return 0;
+  }
+
+  let differences = 0;
+  for (let i = 0; i < hash1.length; i++) {
+    if (hash1[i] !== hash2[i]) {
+      differences++;
+    }
+  }
+
+  // Return similarity percentage (0-100)
+  const similarity = ((hash1.length - differences) / hash1.length) * 100;
+  return similarity;
+}
+
+// TECHNIQUE #2: Overlap Region Verification
+async function verifyOverlapMatch(image1, image2, overlapPixels) {
+  try {
+    const response1 = await fetch(image1);
+    const blob1 = await response1.blob();
+    const bitmap1 = await createImageBitmap(blob1);
+
+    const response2 = await fetch(image2);
+    const blob2 = await response2.blob();
+    const bitmap2 = await createImageBitmap(blob2);
+
+    // Extract bottom portion of image1
+    const canvas1 = new OffscreenCanvas(bitmap1.width, overlapPixels);
+    const ctx1 = canvas1.getContext('2d');
+    ctx1.drawImage(
+      bitmap1,
+      0, bitmap1.height - overlapPixels,
+      bitmap1.width, overlapPixels,
+      0, 0,
+      bitmap1.width, overlapPixels
+    );
+
+    // Extract top portion of image2
+    const canvas2 = new OffscreenCanvas(bitmap2.width, overlapPixels);
+    const ctx2 = canvas2.getContext('2d');
+    ctx2.drawImage(
+      bitmap2,
+      0, 0,
+      bitmap2.width, overlapPixels,
+      0, 0,
+      bitmap2.width, overlapPixels
+    );
+
+    bitmap1.close();
+    bitmap2.close();
+
+    // Compare the overlap regions
+    const imageData1 = ctx1.getImageData(0, 0, canvas1.width, canvas1.height);
+    const imageData2 = ctx2.getImageData(0, 0, canvas2.width, canvas2.height);
+
+    // Calculate MSE between overlap regions
+    const mse = calculateMSE(imageData1, imageData2);
+
+    // Low MSE means good match (< 100 is excellent, < 500 is good)
+    return mse;
+  } catch (error) {
+    console.log('Error verifying overlap:', error);
+    return 0; // Assume good match on error
+  }
+}
+
+// TECHNIQUE #3: Mean Squared Error (MSE) for pixel-level comparison
+function calculateMSE(imageData1, imageData2) {
+  const pixels1 = imageData1.data;
+  const pixels2 = imageData2.data;
+
+  if (pixels1.length !== pixels2.length) {
+    return Infinity; // Images are different sizes
+  }
+
+  let sumSquaredDiff = 0;
+  let count = 0;
+
+  // Compare every pixel (sample every 4th pixel for performance)
+  for (let i = 0; i < pixels1.length; i += 16) {
+    const r1 = pixels1[i];
+    const g1 = pixels1[i + 1];
+    const b1 = pixels1[i + 2];
+
+    const r2 = pixels2[i];
+    const g2 = pixels2[i + 1];
+    const b2 = pixels2[i + 2];
+
+    const diff = (r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2;
+    sumSquaredDiff += diff;
+    count++;
+  }
+
+  return sumSquaredDiff / count;
+}
+
+// TECHNIQUE #3b: Full image similarity using MSE
+async function calculateImageSimilarity(image1, image2) {
+  try {
+    const response1 = await fetch(image1);
+    const blob1 = await response1.blob();
+    const bitmap1 = await createImageBitmap(blob1);
+
+    const response2 = await fetch(image2);
+    const blob2 = await response2.blob();
+    const bitmap2 = await createImageBitmap(blob2);
+
+    // Resize both to same small size for comparison
+    const compareSize = 100;
+    const canvas1 = new OffscreenCanvas(compareSize, compareSize);
+    const ctx1 = canvas1.getContext('2d');
+    ctx1.drawImage(bitmap1, 0, 0, compareSize, compareSize);
+
+    const canvas2 = new OffscreenCanvas(compareSize, compareSize);
+    const ctx2 = canvas2.getContext('2d');
+    ctx2.drawImage(bitmap2, 0, 0, compareSize, compareSize);
+
+    bitmap1.close();
+    bitmap2.close();
+
+    const imageData1 = ctx1.getImageData(0, 0, compareSize, compareSize);
+    const imageData2 = ctx2.getImageData(0, 0, compareSize, compareSize);
+
+    return calculateMSE(imageData1, imageData2);
+  } catch (error) {
+    console.log('Error calculating image similarity:', error);
+    return Infinity;
+  }
+}
+
+// TECHNIQUE #4: Histogram Comparison
+async function generateHistogram(base64Image) {
+  try {
+    const response = await fetch(base64Image);
+    const blob = await response.blob();
+    const bitmap = await createImageBitmap(blob);
+
+    // Resize for faster processing
+    const sampleSize = 100;
+    const canvas = new OffscreenCanvas(sampleSize, sampleSize);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0, sampleSize, sampleSize);
+    bitmap.close();
+
+    const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize);
+    const pixels = imageData.data;
+
+    // Create histograms for R, G, B channels (16 bins each for speed)
+    const bins = 16;
+    const histogram = { r: new Array(bins).fill(0), g: new Array(bins).fill(0), b: new Array(bins).fill(0) };
+
+    for (let i = 0; i < pixels.length; i += 4) {
+      const rBin = Math.floor((pixels[i] / 256) * bins);
+      const gBin = Math.floor((pixels[i + 1] / 256) * bins);
+      const bBin = Math.floor((pixels[i + 2] / 256) * bins);
+
+      histogram.r[rBin === bins ? bins - 1 : rBin]++;
+      histogram.g[gBin === bins ? bins - 1 : gBin]++;
+      histogram.b[bBin === bins ? bins - 1 : bBin]++;
+    }
+
+    return histogram;
+  } catch (error) {
+    console.log('Error generating histogram:', error);
+    return null;
+  }
+}
+
+// Compare two histograms using correlation
+function compareHistograms(hist1, hist2) {
+  if (!hist1 || !hist2) return 0;
+
+  // Calculate correlation for each channel
+  const correlationR = calculateCorrelation(hist1.r, hist2.r);
+  const correlationG = calculateCorrelation(hist1.g, hist2.g);
+  const correlationB = calculateCorrelation(hist1.b, hist2.b);
+
+  // Average correlation across channels (0-100)
+  return ((correlationR + correlationG + correlationB) / 3) * 100;
+}
+
+function calculateCorrelation(arr1, arr2) {
+  const n = arr1.length;
+  const sum1 = arr1.reduce((a, b) => a + b, 0);
+  const sum2 = arr2.reduce((a, b) => a + b, 0);
+  const mean1 = sum1 / n;
+  const mean2 = sum2 / n;
+
+  let numerator = 0;
+  let denominator1 = 0;
+  let denominator2 = 0;
+
+  for (let i = 0; i < n; i++) {
+    const diff1 = arr1[i] - mean1;
+    const diff2 = arr2[i] - mean2;
+    numerator += diff1 * diff2;
+    denominator1 += diff1 ** 2;
+    denominator2 += diff2 ** 2;
+  }
+
+  const denominator = Math.sqrt(denominator1 * denominator2);
+  if (denominator === 0) return 0;
+
+  return numerator / denominator;
+}
+
+// TECHNIQUE #5: Adaptive Overlap - Detect content type
+async function determineOptimalOverlap(base64Image) {
+  try {
+    const response = await fetch(base64Image);
+    const blob = await response.blob();
+    const bitmap = await createImageBitmap(blob);
+
+    const sampleSize = 100;
+    const canvas = new OffscreenCanvas(sampleSize, sampleSize);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0, sampleSize, sampleSize);
+    bitmap.close();
+
+    const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize);
+    const pixels = imageData.data;
+
+    // Calculate edge density (high edges = images/complex content, low edges = text)
+    let edgeCount = 0;
+    const edgeThreshold = 30;
+
+    for (let y = 1; y < sampleSize - 1; y++) {
+      for (let x = 1; x < sampleSize - 1; x++) {
+        const idx = (y * sampleSize + x) * 4;
+        const idxRight = (y * sampleSize + (x + 1)) * 4;
+        const idxDown = ((y + 1) * sampleSize + x) * 4;
+
+        // Simple edge detection
+        const diffX = Math.abs(pixels[idx] - pixels[idxRight]);
+        const diffY = Math.abs(pixels[idx] - pixels[idxDown]);
+
+        if (diffX > edgeThreshold || diffY > edgeThreshold) {
+          edgeCount++;
+        }
+      }
+    }
+
+    const edgeDensity = edgeCount / (sampleSize * sampleSize);
+
+    // High edge density (> 0.15) = complex content, use more overlap (200px)
+    // Low edge density (< 0.15) = mostly text, use less overlap (100px)
+    if (edgeDensity > 0.15) {
+      return { overlap: 200, contentType: 'complex' };
+    } else {
+      return { overlap: 100, contentType: 'simple' };
+    }
+  } catch (error) {
+    console.log('Error determining optimal overlap:', error);
+    return { overlap: 150, contentType: 'unknown' }; // Default
+  }
+}
+
 // Capture rolling area by stitching multiple segments
 async function captureRollingArea(tabId, segments, platform, url, overlapAmount = 150) {
   try {
-    console.log('Capturing rolling area:', segments.length, 'segments with', overlapAmount, 'px overlap');
-    
+    console.log('🚀 Starting advanced rolling capture:', segments.length, 'segments with', overlapAmount, 'px overlap');
+    console.log('🛡️ Duplicate detection enabled: pHash, MSE, Histogram, Overlap Verification, Adaptive Overlap');
+
     // HIDE USER DATA and FIXED ELEMENTS before screenshots
     await new Promise((resolve) => {
       chrome.tabs.sendMessage(tabId, { action: 'hideUserData' }, () => {
@@ -251,7 +558,7 @@ async function captureRollingArea(tabId, segments, platform, url, overlapAmount 
         resolve();
       });
     });
-    
+
     await new Promise((resolve) => {
       chrome.tabs.sendMessage(tabId, { action: 'hideFixedElements' }, () => {
         if (chrome.runtime.lastError) {
@@ -260,12 +567,16 @@ async function captureRollingArea(tabId, segments, platform, url, overlapAmount 
         resolve();
       });
     });
-    
+
     await new Promise(resolve => setTimeout(resolve, 300));
-    
-    // Capture each segment
-    // Note: Chrome has a rate limit of ~2 captures/second for captureVisibleTab
+
+    // Capture each segment with advanced duplicate detection
     const segmentImages = [];
+    const segmentMetadata = []; // Store hashes and histograms
+    let previousScrollY = null;
+    let duplicatesSkipped = 0;
+    let blanksSkipped = 0;
+
     for (let i = 0; i < segments.length; i++) {
       const segment = segments[i];
 
@@ -276,11 +587,36 @@ async function captureRollingArea(tabId, segments, platform, url, overlapAmount 
         totalSegments: segments.length
       }).catch(() => {}); // Ignore errors if content script was removed
 
+      // TECHNIQUE #6: Scroll Position Validation
+      if (previousScrollY !== null) {
+        const expectedDelta = segment.scrollY - previousScrollY;
+        const minExpectedDelta = 50; // Minimum 50px movement required
+
+        if (expectedDelta < minExpectedDelta) {
+          console.log(`⚠️ Segment ${i + 1}: Scroll delta too small (${expectedDelta}px), likely duplicate - SKIPPING`);
+          duplicatesSkipped++;
+          continue;
+        }
+      }
+      previousScrollY = segment.scrollY;
+
       // Scroll to the position and wait for completion
-      await chrome.tabs.sendMessage(tabId, {
+      const scrollResponse = await chrome.tabs.sendMessage(tabId, {
         action: 'scrollAndWait',
         scrollY: segment.scrollY
       });
+
+      // Log scroll validation info
+      if (scrollResponse && scrollResponse.scrollDelta !== undefined) {
+        console.log(`📜 Scroll validation: target=${segment.scrollY}, actual=${scrollResponse.actualScrollY}, delta=${scrollResponse.scrollDelta}px`);
+
+        // Additional check: if we didn't scroll enough from previous position
+        if (previousScrollY !== null && scrollResponse.scrollDelta < 50) {
+          console.log(`⚠️ Segment ${i + 1}: Actual scroll delta too small (${scrollResponse.scrollDelta}px) - SKIPPING`);
+          duplicatesSkipped++;
+          continue;
+        }
+      }
 
       // Capture screenshot
       const screenshot = await chrome.tabs.captureVisibleTab(null, {
@@ -290,22 +626,85 @@ async function captureRollingArea(tabId, segments, platform, url, overlapAmount 
       // Crop to bounds
       const croppedImage = await cropImage(screenshot, segment.bounds);
 
-      // Check if segment is blank before adding
+      // EXISTING: Check if segment is blank
       const isBlank = await isBlankSegment(croppedImage);
-
       if (isBlank) {
-        console.log(`Segment ${i + 1}/${segments.length} is blank, skipping`);
-        // Update progress to show we skipped it
-        await chrome.tabs.sendMessage(tabId, {
-          action: 'updateProgress',
-          currentSegment: i + 1,
-          totalSegments: segments.length,
-          skipped: true
-        }).catch(() => {});
-      } else {
-        segmentImages.push(croppedImage);
-        console.log(`Captured segment ${i + 1}/${segments.length}`);
+        console.log(`⬜ Segment ${i + 1}/${segments.length} is blank - SKIPPING`);
+        blanksSkipped++;
+        continue;
       }
+
+      // Generate analysis data for duplicate detection
+      let shouldSkip = false;
+      let skipReason = '';
+
+      if (segmentImages.length > 0) {
+        const previousImage = segmentImages[segmentImages.length - 1];
+        const previousMetadata = segmentMetadata[segmentMetadata.length - 1];
+
+        // TECHNIQUE #1: Perceptual Hash Comparison
+        const currentHash = await generatePerceptualHash(croppedImage);
+        if (currentHash && previousMetadata.hash) {
+          const hashSimilarity = compareHashes(previousMetadata.hash, currentHash);
+          if (hashSimilarity > 90) {
+            shouldSkip = true;
+            skipReason = `pHash similarity ${hashSimilarity.toFixed(1)}% (>90%)`;
+          }
+        }
+
+        // TECHNIQUE #2: Overlap Region Verification (if not already skipped)
+        if (!shouldSkip && overlapAmount > 0) {
+          const overlapPixels = Math.floor(overlapAmount * (segment.bounds.devicePixelRatio || 1));
+          const overlapMSE = await verifyOverlapMatch(previousImage, croppedImage, overlapPixels);
+
+          // If overlap regions are too different (MSE > 1000), something's wrong
+          // If overlap regions are TOO similar (MSE < 10), it's likely a duplicate
+          if (overlapMSE < 10) {
+            shouldSkip = true;
+            skipReason = `Overlap MSE ${overlapMSE.toFixed(1)} - too similar (duplicate)`;
+          }
+        }
+
+        // TECHNIQUE #3: Full Image MSE Similarity (if not already skipped)
+        if (!shouldSkip) {
+          const imageMSE = await calculateImageSimilarity(previousImage, croppedImage);
+          if (imageMSE < 50) { // Very low MSE = nearly identical
+            shouldSkip = true;
+            skipReason = `Image MSE ${imageMSE.toFixed(1)} - nearly identical`;
+          }
+        }
+
+        // TECHNIQUE #4: Histogram Comparison (if not already skipped)
+        if (!shouldSkip) {
+          const currentHistogram = await generateHistogram(croppedImage);
+          if (currentHistogram && previousMetadata.histogram) {
+            const histogramSimilarity = compareHistograms(previousMetadata.histogram, currentHistogram);
+            if (histogramSimilarity > 95) {
+              shouldSkip = true;
+              skipReason = `Histogram similarity ${histogramSimilarity.toFixed(1)}% (>95%)`;
+            }
+          }
+        }
+
+        if (shouldSkip) {
+          console.log(`🚫 Segment ${i + 1}/${segments.length} detected as DUPLICATE - ${skipReason} - SKIPPING`);
+          duplicatesSkipped++;
+          continue;
+        }
+      }
+
+      // TECHNIQUE #5: Adaptive Overlap (for next iteration)
+      // Determine optimal overlap for future segments based on content complexity
+      const optimalOverlap = await determineOptimalOverlap(croppedImage);
+      console.log(`✅ Segment ${i + 1}/${segments.length} captured (content: ${optimalOverlap.contentType}, suggested overlap: ${optimalOverlap.overlap}px)`);
+
+      // Store segment and metadata
+      segmentImages.push(croppedImage);
+      segmentMetadata.push({
+        hash: await generatePerceptualHash(croppedImage),
+        histogram: await generateHistogram(croppedImage),
+        optimalOverlap: optimalOverlap
+      });
 
       // IMPORTANT: Wait between captures to respect Chrome's rate limit
       // Chrome allows ~2 captures/second, so wait 600ms between each
@@ -313,6 +712,8 @@ async function captureRollingArea(tabId, segments, platform, url, overlapAmount 
         await new Promise(resolve => setTimeout(resolve, 600));
       }
     }
+
+    console.log(`📊 Capture Summary: ${segmentImages.length} segments kept, ${blanksSkipped} blanks skipped, ${duplicatesSkipped} duplicates skipped`);
     
     // RESTORE USER DATA and FIXED ELEMENTS after screenshots
     await new Promise((resolve) => {
@@ -335,14 +736,14 @@ async function captureRollingArea(tabId, segments, platform, url, overlapAmount 
     
     // Check if we have any non-blank segments
     if (segmentImages.length === 0) {
-      throw new Error('All segments were blank - nothing to capture!');
+      throw new Error('All segments were filtered out (blank or duplicates) - nothing to capture!');
     }
 
     // Stitch images together
     const devicePixelRatio = segments[0]?.bounds?.devicePixelRatio || 1;
     const stitchedImage = await stitchImages(segmentImages, overlapAmount, devicePixelRatio);
 
-    console.log(`Stitched ${segmentImages.length} non-blank segments (skipped ${segments.length - segmentImages.length} blank segments)`);
+    console.log(`✨ Successfully stitched ${segmentImages.length} unique segments (filtered ${blanksSkipped} blanks + ${duplicatesSkipped} duplicates from ${segments.length} total)`);
     
     // Store in archive with case info
     const captureData = {

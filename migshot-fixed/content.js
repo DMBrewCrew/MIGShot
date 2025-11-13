@@ -34,9 +34,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ status: 'scrolled' });
   } else if (request.action === 'scrollAndWait') {
     // Smart scroll waiting - wait for scroll to complete and content to render
-    window.scrollTo(0, request.scrollY);
-    waitForScrollComplete(request.scrollY).then(() => {
-      sendResponse({ status: 'scroll complete' });
+    const targetY = request.scrollY;
+    const beforeScrollY = window.scrollY;
+
+    window.scrollTo(0, targetY);
+    waitForScrollComplete(targetY).then(() => {
+      const actualScrollY = window.scrollY;
+      const actualDelta = actualScrollY - beforeScrollY;
+
+      sendResponse({
+        status: 'scroll complete',
+        actualScrollY: actualScrollY,
+        targetScrollY: targetY,
+        scrollDelta: actualDelta,
+        scrolledToTarget: Math.abs(actualScrollY - targetY) < 5
+      });
     });
     return true; // Keep message channel open for async response
   } else if (request.action === 'hideFixedElements') {
