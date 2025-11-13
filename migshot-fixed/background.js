@@ -187,6 +187,56 @@ async function captureSelectedArea(tabId, bounds, platform, url) {
   }
 }
 
+// Analyze if a segment is mostly blank (>95% white/transparent pixels)
+async function isBlankSegment(base64Image) {
+  try {
+    // Convert base64 to blob
+    const response = await fetch(base64Image);
+    const blob = await response.blob();
+
+    // Create ImageBitmap
+    const bitmap = await createImageBitmap(blob);
+
+    // Create small canvas for sampling (don't need full resolution)
+    const sampleSize = Math.min(bitmap.width, bitmap.height, 200);
+    const canvas = new OffscreenCanvas(sampleSize, sampleSize);
+    const ctx = canvas.getContext('2d');
+
+    // Draw scaled-down version for faster analysis
+    ctx.drawImage(bitmap, 0, 0, sampleSize, sampleSize);
+    bitmap.close(); // Clean up bitmap
+
+    // Get pixel data
+    const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize);
+    const pixels = imageData.data;
+
+    let blankPixels = 0;
+    const threshold = 250; // Near-white threshold (250-255)
+    const totalPixels = pixels.length / 4;
+
+    // Sample every 4th pixel for performance (still statistically significant)
+    for (let i = 0; i < pixels.length; i += 16) {
+      const r = pixels[i];
+      const g = pixels[i + 1];
+      const b = pixels[i + 2];
+      const a = pixels[i + 3];
+
+      // Check if pixel is white or transparent
+      if ((r > threshold && g > threshold && b > threshold) || a < 10) {
+        blankPixels++;
+      }
+    }
+
+    const sampledPixels = pixels.length / 16;
+    const blankPercentage = blankPixels / sampledPixels;
+
+    return blankPercentage > 0.95; // More than 95% blank
+  } catch (error) {
+    console.log('Error analyzing segment, assuming not blank:', error);
+    return false; // If error, assume not blank to be safe
+  }
+}
+
 // Capture rolling area by stitching multiple segments
 async function captureRollingArea(tabId, segments, platform, url, overlapAmount = 150) {
   try {
@@ -226,14 +276,11 @@ async function captureRollingArea(tabId, segments, platform, url, overlapAmount 
         totalSegments: segments.length
       }).catch(() => {}); // Ignore errors if content script was removed
 
-      // Scroll to the position
+      // Scroll to the position and wait for completion
       await chrome.tabs.sendMessage(tabId, {
-        action: 'scrollToPosition',
+        action: 'scrollAndWait',
         scrollY: segment.scrollY
       });
-
-      // Wait for scroll to complete and content to render
-      await new Promise(resolve => setTimeout(resolve, 300));
 
       // Capture screenshot
       const screenshot = await chrome.tabs.captureVisibleTab(null, {
@@ -242,15 +289,29 @@ async function captureRollingArea(tabId, segments, platform, url, overlapAmount 
 
       // Crop to bounds
       const croppedImage = await cropImage(screenshot, segment.bounds);
-      segmentImages.push(croppedImage);
+
+      // Check if segment is blank before adding
+      const isBlank = await isBlankSegment(croppedImage);
+
+      if (isBlank) {
+        console.log(`Segment ${i + 1}/${segments.length} is blank, skipping`);
+        // Update progress to show we skipped it
+        await chrome.tabs.sendMessage(tabId, {
+          action: 'updateProgress',
+          currentSegment: i + 1,
+          totalSegments: segments.length,
+          skipped: true
+        }).catch(() => {});
+      } else {
+        segmentImages.push(croppedImage);
+        console.log(`Captured segment ${i + 1}/${segments.length}`);
+      }
 
       // IMPORTANT: Wait between captures to respect Chrome's rate limit
       // Chrome allows ~2 captures/second, so wait 600ms between each
       if (i < segments.length - 1) {
         await new Promise(resolve => setTimeout(resolve, 600));
       }
-
-      console.log(`Captured segment ${i + 1}/${segments.length}`);
     }
     
     // RESTORE USER DATA and FIXED ELEMENTS after screenshots
@@ -272,9 +333,16 @@ async function captureRollingArea(tabId, segments, platform, url, overlapAmount 
       });
     });
     
+    // Check if we have any non-blank segments
+    if (segmentImages.length === 0) {
+      throw new Error('All segments were blank - nothing to capture!');
+    }
+
     // Stitch images together
     const devicePixelRatio = segments[0]?.bounds?.devicePixelRatio || 1;
     const stitchedImage = await stitchImages(segmentImages, overlapAmount, devicePixelRatio);
+
+    console.log(`Stitched ${segmentImages.length} non-blank segments (skipped ${segments.length - segmentImages.length} blank segments)`);
     
     // Store in archive with case info
     const captureData = {
@@ -321,15 +389,17 @@ async function stitchImages(base64Images, overlapAmount = 150, devicePixelRatio 
   
   console.log('Stitching', base64Images.length, 'images with', overlapAmount, 'px overlap at', devicePixelRatio, 'x DPR');
   
-  // Load all images
+  // Load all images as bitmaps
   const imageBitmaps = [];
-  
+
   for (const base64Image of base64Images) {
     const response = await fetch(base64Image);
     const blob = await response.blob();
     const bitmap = await createImageBitmap(blob);
     imageBitmaps.push(bitmap);
   }
+
+  console.log('Loaded', imageBitmaps.length, 'image bitmaps for stitching');
   
   // Calculate total height with overlap removed
   // First image: full height
@@ -351,10 +421,10 @@ async function stitchImages(base64Images, overlapAmount = 150, devicePixelRatio 
   
   // Draw images with overlap removed
   let currentY = 0;
-  
+
   for (let i = 0; i < imageBitmaps.length; i++) {
     const bitmap = imageBitmaps[i];
-    
+
     if (i === 0) {
       // First image: draw the entire image
       ctx.drawImage(bitmap, 0, 0);
@@ -373,7 +443,12 @@ async function stitchImages(base64Images, overlapAmount = 150, devicePixelRatio 
       currentY += (bitmap.height - overlapPixels);
       console.log('Segment', i, ': Drew from y=', overlapPixels, 'height=', (bitmap.height - overlapPixels), 'at canvas y=', (currentY - (bitmap.height - overlapPixels)));
     }
+
+    // Clean up bitmap memory immediately after drawing
+    bitmap.close();
   }
+
+  console.log('Memory cleanup: Closed', imageBitmaps.length, 'bitmaps');
   
   // Convert to base64
   const blob = await canvas.convertToBlob({ type: 'image/png' });
@@ -395,18 +470,21 @@ async function cropImage(base64Image, bounds) {
   
   // Create ImageBitmap (works in service workers)
   const imageBitmap = await createImageBitmap(blob);
-  
+
   // Create canvas for cropping
   const canvas = new OffscreenCanvas(width, height);
   const ctx = canvas.getContext('2d');
-  
+
   // Draw cropped portion
   ctx.drawImage(
     imageBitmap,
     x, y, width, height,  // source
     0, 0, width, height   // destination
   );
-  
+
+  // Clean up bitmap memory
+  imageBitmap.close();
+
   // Convert to base64
   const croppedBlob = await canvas.convertToBlob({ type: 'image/png' });
   return await blobToBase64(croppedBlob);

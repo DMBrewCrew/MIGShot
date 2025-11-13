@@ -32,6 +32,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   } else if (request.action === 'scrollToPosition') {
     window.scrollTo(0, request.scrollY);
     sendResponse({ status: 'scrolled' });
+  } else if (request.action === 'scrollAndWait') {
+    // Smart scroll waiting - wait for scroll to complete and content to render
+    window.scrollTo(0, request.scrollY);
+    waitForScrollComplete(request.scrollY).then(() => {
+      sendResponse({ status: 'scroll complete' });
+    });
+    return true; // Keep message channel open for async response
   } else if (request.action === 'hideFixedElements') {
     hideFixedElements();
     sendResponse({ success: true });
@@ -223,6 +230,45 @@ function cleanupSelection() {
   }
   
   document.removeEventListener('keydown', handleKeyDown);
+}
+
+// Smart scroll waiting - wait for scroll to stabilize and content to render
+function waitForScrollComplete(targetY) {
+  return new Promise((resolve) => {
+    let lastY = window.scrollY;
+    let stableCount = 0;
+    const maxWaitTime = 2000; // Maximum 2 seconds wait
+    const startTime = Date.now();
+
+    const checkInterval = setInterval(() => {
+      const currentY = window.scrollY;
+      const elapsed = Date.now() - startTime;
+
+      // Check if we've waited too long
+      if (elapsed > maxWaitTime) {
+        clearInterval(checkInterval);
+        // Give a final small buffer for rendering
+        setTimeout(resolve, 50);
+        return;
+      }
+
+      // Check if scroll position is stable
+      if (Math.abs(currentY - lastY) < 1) {
+        stableCount++;
+        // If stable for 3 checks (~30ms), consider it complete
+        if (stableCount >= 3) {
+          clearInterval(checkInterval);
+          // Extra buffer for content rendering
+          setTimeout(resolve, 50);
+          return;
+        }
+      } else {
+        stableCount = 0;
+      }
+
+      lastY = currentY;
+    }, 10); // Check every 10ms
+  });
 }
 
 // Hide user-identifying elements before screenshot
