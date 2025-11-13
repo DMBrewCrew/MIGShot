@@ -218,31 +218,38 @@ async function captureRollingArea(tabId, segments, platform, url, overlapAmount 
     const segmentImages = [];
     for (let i = 0; i < segments.length; i++) {
       const segment = segments[i];
-      
+
+      // Update progress indicator
+      await chrome.tabs.sendMessage(tabId, {
+        action: 'updateProgress',
+        currentSegment: i + 1,
+        totalSegments: segments.length
+      }).catch(() => {}); // Ignore errors if content script was removed
+
       // Scroll to the position
-      await chrome.tabs.sendMessage(tabId, { 
-        action: 'scrollToPosition', 
-        scrollY: segment.scrollY 
+      await chrome.tabs.sendMessage(tabId, {
+        action: 'scrollToPosition',
+        scrollY: segment.scrollY
       });
-      
+
       // Wait for scroll to complete and content to render
       await new Promise(resolve => setTimeout(resolve, 300));
-      
+
       // Capture screenshot
       const screenshot = await chrome.tabs.captureVisibleTab(null, {
         format: 'png'
       });
-      
+
       // Crop to bounds
       const croppedImage = await cropImage(screenshot, segment.bounds);
       segmentImages.push(croppedImage);
-      
+
       // IMPORTANT: Wait between captures to respect Chrome's rate limit
       // Chrome allows ~2 captures/second, so wait 600ms between each
       if (i < segments.length - 1) {
         await new Promise(resolve => setTimeout(resolve, 600));
       }
-      
+
       console.log(`Captured segment ${i + 1}/${segments.length}`);
     }
     

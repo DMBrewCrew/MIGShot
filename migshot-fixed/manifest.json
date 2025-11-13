@@ -39,10 +39,10 @@
     },
     "rolling-capture": {
       "suggested_key": {
-        "default": "Alt+Shift+F",
-        "mac": "Alt+Shift+F"
+        "default": "Shift+Alt+S",
+        "mac": "Shift+Alt+S"
       },
-      "description": "Rolling capture - two-click selection"
+      "description": "Rolling capture - automatic scrolling"
     }
   },
   "icons": {
