@@ -342,6 +342,109 @@ let rollingInstructionText = null;
 let rollingState = 'idle'; // 'idle', 'waitingForFirstClick', 'waitingForSecondClick'
 let firstClickData = null; // { x, y, scrollY }
 
+// Analyze content density in a given area (returns 0-1, where 0 is blank, 1 is full of content)
+function analyzeContentDensity(x, y, width, height) {
+  try {
+    // Create a temporary canvas to analyze the area
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    // Sample at lower resolution for performance (max 200x200 sample)
+    const sampleScale = Math.min(1, 200 / Math.max(width, height));
+    const sampleWidth = Math.floor(width * sampleScale);
+    const sampleHeight = Math.floor(height * sampleScale);
+
+    canvas.width = sampleWidth;
+    canvas.height = sampleHeight;
+
+    // Try to render the area to canvas using html2canvas-like approach
+    // Since we can't directly capture, we'll analyze DOM elements instead
+    // This is a heuristic approach
+
+    // Count visible elements in the area
+    const elements = document.elementsFromPoint(x + width/2, y + height/2);
+
+    // Check for text content in the area
+    const rect = { left: x, top: y, right: x + width, bottom: y + height };
+    let textLength = 0;
+    let elementCount = 0;
+
+    // Walk through elements and check if they're in the bounds
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+      null
+    );
+
+    let nodesSampled = 0;
+    const maxNodes = 500; // Limit sampling for performance
+
+    while (walker.nextNode() && nodesSampled < maxNodes) {
+      const node = walker.currentNode;
+      nodesSampled++;
+
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent.trim();
+        if (text.length > 0) {
+          const parent = node.parentElement;
+          if (parent) {
+            const parentRect = parent.getBoundingClientRect();
+            if (isRectInBounds(parentRect, rect)) {
+              textLength += text.length;
+            }
+          }
+        }
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node;
+        const style = window.getComputedStyle(el);
+
+        // Skip hidden elements
+        if (style.display === 'none' || style.visibility === 'hidden') {
+          continue;
+        }
+
+        const elRect = el.getBoundingClientRect();
+        if (isRectInBounds(elRect, rect)) {
+          elementCount++;
+
+          // Check for images, videos, or other media
+          if (el.tagName === 'IMG' || el.tagName === 'VIDEO' || el.tagName === 'CANVAS' || el.tagName === 'SVG') {
+            elementCount += 5; // Weight media elements more heavily
+          }
+        }
+      }
+    }
+
+    // Calculate density score based on text and elements
+    // Normalize to 0-1 range
+    const textScore = Math.min(1, textLength / 500); // 500+ chars = full score
+    const elementScore = Math.min(1, elementCount / 20); // 20+ elements = full score
+    const density = (textScore * 0.6 + elementScore * 0.4); // Weight text more
+
+    console.log('Content density analysis:', {
+      textLength,
+      elementCount,
+      textScore: textScore.toFixed(2),
+      elementScore: elementScore.toFixed(2),
+      density: density.toFixed(2)
+    });
+
+    return density;
+
+  } catch (error) {
+    console.error('Content density analysis error:', error);
+    return 0.5; // Default to medium density on error
+  }
+}
+
+// Helper function to check if a rect intersects with bounds
+function isRectInBounds(rect, bounds) {
+  return !(rect.right < bounds.left ||
+           rect.left > bounds.right ||
+           rect.bottom < bounds.top ||
+           rect.top > bounds.bottom);
+}
+
 function startRollingCapture() {
   rollingState = 'waitingForFirstClick';
   firstClickData = null;
@@ -435,28 +538,45 @@ function handleRollingClick(e) {
       y: e.clientY,
       scrollY: window.scrollY
     };
-    
+
     console.log('Rolling capture: Second click recorded at', secondClickData);
-    
+
     // Calculate bounds
     const startX = firstClickData.x;
     const startY = firstClickData.y + firstClickData.scrollY;
     const endX = secondClickData.x;
     const endY = secondClickData.y + secondClickData.scrollY;
-    
+
     const left = Math.min(startX, endX);
     const right = Math.max(startX, endX);
     const top = Math.min(startY, endY);
     const bottom = Math.max(startY, endY);
-    
+
     const width = right - left;
     const totalHeight = bottom - top;
-    
+
     // Minimum selection size
     if (width < 50 || totalHeight < 50) {
       cleanupRollingCapture();
       alert('Selection too small. Please select a larger area.');
       return;
+    }
+
+    // Analyze content density of the selected area
+    const density = analyzeContentDensity(left, top, width, totalHeight);
+
+    // Warn if area is mostly blank (density < 0.15 = less than 15% content)
+    if (density < 0.15) {
+      const proceed = confirm(
+        'Warning: This area appears to be mostly blank or empty.\n\n' +
+        'Content detected: ' + Math.round(density * 100) + '%\n\n' +
+        'Continue with capture anyway?'
+      );
+
+      if (!proceed) {
+        cleanupRollingCapture();
+        return;
+      }
     }
     
     // Calculate segments with overlap

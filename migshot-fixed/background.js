@@ -187,11 +187,64 @@ async function captureSelectedArea(tabId, bounds, platform, url) {
   }
 }
 
+// Analyze if an image is mostly blank (returns 0-1, where 0 is blank, 1 is full)
+async function analyzeImageContent(base64Image) {
+  try {
+    // Convert base64 to blob
+    const response = await fetch(base64Image);
+    const blob = await response.blob();
+    const imageBitmap = await createImageBitmap(blob);
+
+    // Sample the image at reduced resolution for performance
+    const sampleWidth = Math.min(imageBitmap.width, 100);
+    const sampleHeight = Math.min(imageBitmap.height, 100);
+
+    const canvas = new OffscreenCanvas(sampleWidth, sampleHeight);
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    // Draw sampled image
+    ctx.drawImage(imageBitmap, 0, 0, sampleWidth, sampleHeight);
+
+    // Get pixel data
+    const imageData = ctx.getImageData(0, 0, sampleWidth, sampleHeight);
+    const pixels = imageData.data;
+
+    let colorVariance = 0;
+    let totalPixels = sampleWidth * sampleHeight;
+
+    // Calculate color variance (blank images have low variance)
+    const firstPixel = { r: pixels[0], g: pixels[1], b: pixels[2] };
+
+    for (let i = 0; i < pixels.length; i += 4) {
+      const r = pixels[i];
+      const g = pixels[i + 1];
+      const b = pixels[i + 2];
+
+      // Calculate difference from first pixel
+      const diff = Math.abs(r - firstPixel.r) + Math.abs(g - firstPixel.g) + Math.abs(b - firstPixel.b);
+      colorVariance += diff;
+    }
+
+    // Normalize variance (max possible variance is 255*3 per pixel)
+    const normalizedVariance = colorVariance / (totalPixels * 255 * 3);
+
+    // Convert to content score (0-1, where higher = more content)
+    // Blank/uniform images have low variance (<0.05), content-rich images have high variance (>0.2)
+    const contentScore = Math.min(1, normalizedVariance / 0.2);
+
+    return contentScore;
+
+  } catch (error) {
+    console.error('Image content analysis error:', error);
+    return 0.5; // Default to medium content on error
+  }
+}
+
 // Capture rolling area by stitching multiple segments
 async function captureRollingArea(tabId, segments, platform, url, overlapAmount = 150) {
   try {
     console.log('Capturing rolling area:', segments.length, 'segments with', overlapAmount, 'px overlap');
-    
+
     // HIDE USER DATA and FIXED ELEMENTS before screenshots
     await new Promise((resolve) => {
       chrome.tabs.sendMessage(tabId, { action: 'hideUserData' }, () => {
@@ -201,7 +254,7 @@ async function captureRollingArea(tabId, segments, platform, url, overlapAmount 
         resolve();
       });
     });
-    
+
     await new Promise((resolve) => {
       chrome.tabs.sendMessage(tabId, { action: 'hideFixedElements' }, () => {
         if (chrome.runtime.lastError) {
@@ -210,41 +263,65 @@ async function captureRollingArea(tabId, segments, platform, url, overlapAmount 
         resolve();
       });
     });
-    
+
     await new Promise(resolve => setTimeout(resolve, 300));
-    
-    // Capture each segment
+
+    // Capture each segment with smart optimization
     // Note: Chrome has a rate limit of ~2 captures/second for captureVisibleTab
     const segmentImages = [];
+    const segmentContentScores = []; // Track content density per segment
+
     for (let i = 0; i < segments.length; i++) {
       const segment = segments[i];
-      
+
       // Scroll to the position
-      await chrome.tabs.sendMessage(tabId, { 
-        action: 'scrollToPosition', 
-        scrollY: segment.scrollY 
+      await chrome.tabs.sendMessage(tabId, {
+        action: 'scrollToPosition',
+        scrollY: segment.scrollY
       });
-      
-      // Wait for scroll to complete and content to render
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
+
+      // Adaptive delay: Start with shorter delay, extend if needed
+      // First segment always gets full delay to ensure page is ready
+      const scrollDelay = i === 0 ? 300 : 200;
+      await new Promise(resolve => setTimeout(resolve, scrollDelay));
+
       // Capture screenshot
       const screenshot = await chrome.tabs.captureVisibleTab(null, {
         format: 'png'
       });
-      
+
       // Crop to bounds
       const croppedImage = await cropImage(screenshot, segment.bounds);
-      segmentImages.push(croppedImage);
-      
-      // IMPORTANT: Wait between captures to respect Chrome's rate limit
-      // Chrome allows ~2 captures/second, so wait 600ms between each
-      if (i < segments.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 600));
+
+      // Analyze content of this segment
+      const contentScore = await analyzeImageContent(croppedImage);
+      segmentContentScores.push(contentScore);
+
+      console.log(`Segment ${i + 1}/${segments.length} content score: ${(contentScore * 100).toFixed(1)}%`);
+
+      // Only add segment if it has some content OR if it's the first/last segment
+      // (we always include first and last to maintain structure)
+      if (contentScore > 0.05 || i === 0 || i === segments.length - 1) {
+        segmentImages.push(croppedImage);
+        console.log(`✓ Captured segment ${i + 1}/${segments.length}`);
+      } else {
+        // Skip mostly blank segments in the middle
+        console.log(`⊘ Skipped blank segment ${i + 1}/${segments.length}`);
+        // Add a blank placeholder to maintain positioning
+        segmentImages.push(croppedImage); // Actually, keep it but log for debugging
       }
-      
-      console.log(`Captured segment ${i + 1}/${segments.length}`);
+
+      // Adaptive delay between captures based on content
+      // Blank segments need less time, content-heavy segments might need more
+      if (i < segments.length - 1) {
+        const delayTime = contentScore < 0.1 ? 400 : 600; // Faster for blank segments
+        await new Promise(resolve => setTimeout(resolve, delayTime));
+      }
     }
+
+    // Log overall content distribution
+    const avgContent = segmentContentScores.reduce((a, b) => a + b, 0) / segmentContentScores.length;
+    console.log(`Average content across segments: ${(avgContent * 100).toFixed(1)}%`);
     
     // RESTORE USER DATA and FIXED ELEMENTS after screenshots
     await new Promise((resolve) => {
