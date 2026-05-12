@@ -921,7 +921,14 @@ async function uploadCaseToSphere() {
             subject_name:  c.subjectName || '',
             screenshot:    c.screenshot || '',
             url:           c.url || '',
-            platform:      c.accountIdentifier || c.platform || '',
+            platform:      (function () {
+                              // accountIdentifier defaults to '1' (the only/first account on this platform).
+                              // Send just the platform name in that case; append the identifier only when
+                              // the analyst has multiple accounts (e.g. "Facebook 2", "Facebook 3").
+                              const p = c.platform || 'Other';
+                              const acct = c.accountIdentifier || '1';
+                              return acct === '1' ? p : (p + ' ' + acct);
+                            })(),
             captured_at:   c.capturedAt || '',
             posted_at:     c.date || '',
             is_about_page: !!c.isAboutPage,
