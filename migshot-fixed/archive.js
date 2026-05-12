@@ -799,6 +799,154 @@ async function clearUploadedForCase() {
   location.reload();
 }
 
+function showUploadSummary(caseName, okCount, failures) {
+  const old = document.getElementById('sphereUploadSummary');
+  if (old) old.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'sphereUploadSummary';
+  Object.assign(overlay.style, {
+    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+    background: 'rgba(0,0,0,0.5)', zIndex: 9999,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  });
+
+  const box = document.createElement('div');
+  Object.assign(box.style, {
+    background: 'white', borderRadius: '8px', padding: '20px',
+    width: '480px', maxHeight: '70vh', overflowY: 'auto',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+    fontFamily: '-apple-system, sans-serif',
+  });
+
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:16px; font-weight:600; color:#2B5F6F; margin-bottom:12px;';
+  title.textContent = 'Upload Complete: ' + caseName;
+  box.appendChild(title);
+
+  const summary = document.createElement('div');
+  summary.style.cssText = 'font-size:13px; margin-bottom:14px;';
+  summary.innerHTML = '<span style="color:#155724;">✓ ' + okCount + ' uploaded</span>'
+                    + (failures.length ? '<br><span style="color:#c0392b;">✗ ' + failures.length + ' failed</span>' : '');
+  box.appendChild(summary);
+
+  if (failures.length) {
+    const list = document.createElement('ul');
+    list.style.cssText = 'font-size:11px; color:#c0392b; padding-left:18px; margin:0 0 14px;';
+    failures.forEach(f => {
+      const li = document.createElement('li');
+      const statusLabel = f.status === 0 ? 'Network error' : ('HTTP ' + f.status);
+      li.textContent = statusLabel + ': ' + (f.msg || '').slice(0, 200);
+      list.appendChild(li);
+    });
+    box.appendChild(list);
+  }
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.textContent = 'Close';
+  Object.assign(closeBtn.style, {
+    padding: '8px 18px',
+    background: 'linear-gradient(135deg, #2B5F6F 0%, #1a3d48 100%)',
+    color: 'white', border: 'none', borderRadius: '5px',
+    fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+  });
+  closeBtn.addEventListener('click', () => {
+    overlay.remove();
+    // Refresh the active view so the new badges + counts show up.
+    loadData().then(() => {
+      renderCaptures();
+      updateCaseBarButtons();
+    });
+  });
+  box.appendChild(closeBtn);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+
+async function uploadCaseToSphere() {
+  if (!currentCaseKey || currentCaseKey === 'uncategorized') return;
+  const [caseName, caseMig] = currentCaseKey.split('|||');
+
+  const { sphereUrl, sphereToken, captures } = await chrome.storage.local.get(
+    ['sphereUrl', 'sphereToken', 'captures']
+  );
+
+  if (!sphereUrl || !sphereToken) {
+    alert('Set Sphere URL + token in ⚙ Sphere Settings first.');
+    return;
+  }
+
+  const all = captures || [];
+  const targets = [];
+  all.forEach((c, idx) => {
+    if (c.caseName === caseName && c.caseMIG === caseMig && !c.uploadedAt) {
+      targets.push({ c, idx });
+    }
+  });
+
+  if (targets.length === 0) {
+    alert('Nothing to upload — all captures for this case are already uploaded.');
+    return;
+  }
+
+  const uploadBtn = document.getElementById('uploadCaseBtn');
+  let ok = 0;
+  const failed = [];
+  if (uploadBtn) {
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = 'Uploading 0/' + targets.length + '…';
+  }
+
+  for (let i = 0; i < targets.length; i++) {
+    const { c, idx } = targets[i];
+    try {
+      const res = await fetch(sphereUrl + '/api/captures', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + sphereToken,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          case_number:   caseMig,
+          subject_name:  c.subjectName || '',
+          screenshot:    c.screenshot || '',
+          url:           c.url || '',
+          platform:      c.accountIdentifier || c.platform || '',
+          captured_at:   c.capturedAt || '',
+          posted_at:     c.date || '',
+          is_about_page: !!c.isAboutPage,
+          notes:         '',
+        }),
+      });
+
+      if (res.ok) {
+        const body = await res.json().catch(() => ({}));
+        all[idx].uploadedAt = new Date().toISOString();
+        all[idx].serverCaptureId = body.capture_id || null;
+        await chrome.storage.local.set({ captures: all });
+        // Mirror into the in-memory copy so the post-loop render sees it.
+        if (allCaptures[idx]) {
+          allCaptures[idx].uploadedAt = all[idx].uploadedAt;
+          allCaptures[idx].serverCaptureId = all[idx].serverCaptureId;
+        }
+        ok++;
+      } else {
+        const msg = await res.text().catch(() => 'HTTP ' + res.status);
+        failed.push({ idx, status: res.status, msg });
+      }
+    } catch (e) {
+      failed.push({ idx, status: 0, msg: e.message });
+    }
+    if (uploadBtn) {
+      uploadBtn.textContent = 'Uploading ' + (i + 1) + '/' + targets.length + '…';
+    }
+  }
+
+  showUploadSummary(caseName, ok, failed);
+}
+
 // Setup event listeners
 function setupEventListeners() {
   // Case dropdown change
@@ -826,10 +974,7 @@ function setupEventListeners() {
 
   // Sphere case-bar buttons
   document.getElementById('editCaseMigBtn')?.addEventListener('click', editCaseMIG);
-  document.getElementById('uploadCaseBtn')?.addEventListener('click', () => {
-    // Wired in Task 8.
-    alert('Upload not implemented yet — coming in Task 8.');
-  });
+  document.getElementById('uploadCaseBtn')?.addEventListener('click', uploadCaseToSphere);
   document.getElementById('clearUploadedBtn')?.addEventListener('click', clearUploadedForCase);
   
   // Bulk actions
