@@ -714,6 +714,11 @@ function setupEventListeners() {
   
   // Collapse/Expand All button
   document.getElementById('toggleCollapseBtn').addEventListener('click', toggleCollapseAll);
+
+  // Sphere Settings button
+  document.getElementById('sphereSettingsBtn')?.addEventListener('click', () => {
+    chrome.runtime.openOptionsPage();
+  });
   
   // Bulk actions
   document.getElementById('selectAllCheckbox').addEventListener('change', (e) => {
