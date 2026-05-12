@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MIGShot Settings</title>
   <style>
     body {
@@ -78,6 +79,12 @@
       transition: all 0.2s;
     }
     button:hover { background: linear-gradient(135deg, #1a3d48 0%, #2B5F6F 100%); }
+    button:disabled {
+      background: #ccc;
+      color: #666;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
     button.secondary {
       background: linear-gradient(135deg, #9B9565 0%, #7a7550 100%);
     }
@@ -106,7 +113,7 @@
   <div class="container">
     <div class="field">
       <label for="urlInput">Sphere Platform URL</label>
-      <input type="url" id="urlInput" placeholder="https://sphere.example.com">
+      <input type="text" id="urlInput" placeholder="https://sphere.example.com">
       <div class="hint">Base URL only — no trailing slash. Example: <code>http://127.0.0.1:8000</code></div>
     </div>
     <div class="field">

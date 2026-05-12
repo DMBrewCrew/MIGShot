@@ -47,8 +47,18 @@ saveBtn.addEventListener('click', async () => {
     return;
   }
 
-  await chrome.storage.local.set({ sphereUrl: url, sphereToken: token });
-  showStatus('ok', '✓ Saved.');
+  saveBtn.disabled = true;
+  try {
+    const granted = await chrome.permissions.request({ origins: [url + '/*'] });
+    if (!granted) {
+      showStatus('err', 'Permission to reach ' + url + ' was denied. Click Save again and approve.');
+      return;
+    }
+    await chrome.storage.local.set({ sphereUrl: url, sphereToken: token });
+    showStatus('ok', '✓ Saved.');
+  } finally {
+    saveBtn.disabled = false;
+  }
 });
 
 testBtn.addEventListener('click', () => {
@@ -56,4 +66,4 @@ testBtn.addEventListener('click', () => {
   showStatus('err', 'Test Connection not implemented yet.');
 });
 
-document.addEventListener('DOMContentLoaded', loadSettings);
+loadSettings();
