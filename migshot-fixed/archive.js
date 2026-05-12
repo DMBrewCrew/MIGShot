@@ -892,56 +892,71 @@ async function uploadCaseToSphere() {
   }
 
   const uploadBtn = document.getElementById('uploadCaseBtn');
+  const editBtn = document.getElementById('editCaseMigBtn');
+  const clearBtn = document.getElementById('clearUploadedBtn');
   let ok = 0;
   const failed = [];
+  // Lock all case-bar actions for the duration of the loop. The ✏️ and 🗑
+  // sibling actions both call location.reload(), which would corrupt the
+  // captures array we're mid-mutating.
   if (uploadBtn) {
     uploadBtn.disabled = true;
     uploadBtn.textContent = 'Uploading 0/' + targets.length + '…';
   }
+  if (editBtn) editBtn.disabled = true;
+  if (clearBtn) clearBtn.disabled = true;
 
-  for (let i = 0; i < targets.length; i++) {
-    const { c, idx } = targets[i];
-    try {
-      const res = await fetch(sphereUrl + '/api/captures', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + sphereToken,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          case_number:   caseMig,
-          subject_name:  c.subjectName || '',
-          screenshot:    c.screenshot || '',
-          url:           c.url || '',
-          platform:      c.accountIdentifier || c.platform || '',
-          captured_at:   c.capturedAt || '',
-          posted_at:     c.date || '',
-          is_about_page: !!c.isAboutPage,
-          notes:         '',
-        }),
-      });
+  try {
+    for (let i = 0; i < targets.length; i++) {
+      const { c, idx } = targets[i];
+      try {
+        const res = await fetch(sphereUrl + '/api/captures', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + sphereToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            case_number:   caseMig,
+            subject_name:  c.subjectName || '',
+            screenshot:    c.screenshot || '',
+            url:           c.url || '',
+            platform:      c.accountIdentifier || c.platform || '',
+            captured_at:   c.capturedAt || '',
+            posted_at:     c.date || '',
+            is_about_page: !!c.isAboutPage,
+            notes:         '',
+          }),
+        });
 
-      if (res.ok) {
-        const body = await res.json().catch(() => ({}));
-        all[idx].uploadedAt = new Date().toISOString();
-        all[idx].serverCaptureId = body.capture_id || null;
-        await chrome.storage.local.set({ captures: all });
-        // Mirror into the in-memory copy so the post-loop render sees it.
-        if (allCaptures[idx]) {
-          allCaptures[idx].uploadedAt = all[idx].uploadedAt;
-          allCaptures[idx].serverCaptureId = all[idx].serverCaptureId;
+        if (res.ok) {
+          const body = await res.json().catch(() => ({}));
+          all[idx].uploadedAt = new Date().toISOString();
+          all[idx].serverCaptureId = body.capture_id || null;
+          await chrome.storage.local.set({ captures: all });
+          // Mirror into the in-memory copy by originalIndex (array positions
+          // in allCaptures can diverge from storage order after drag-reorder).
+          const inMem = allCaptures.find(ac => ac.originalIndex === c.originalIndex);
+          if (inMem) {
+            inMem.uploadedAt = all[idx].uploadedAt;
+            inMem.serverCaptureId = all[idx].serverCaptureId;
+          }
+          ok++;
+        } else {
+          // status field already carries res.status — msg should only hold body text.
+          const msg = await res.text().catch(() => '');
+          failed.push({ idx, status: res.status, msg });
         }
-        ok++;
-      } else {
-        const msg = await res.text().catch(() => 'HTTP ' + res.status);
-        failed.push({ idx, status: res.status, msg });
+      } catch (e) {
+        failed.push({ idx, status: 0, msg: e.message });
       }
-    } catch (e) {
-      failed.push({ idx, status: 0, msg: e.message });
+      if (uploadBtn) {
+        uploadBtn.textContent = 'Uploading ' + (i + 1) + '/' + targets.length + '…';
+      }
     }
-    if (uploadBtn) {
-      uploadBtn.textContent = 'Uploading ' + (i + 1) + '/' + targets.length + '…';
-    }
+  } finally {
+    // Always restore button state, even if an exception escapes the loop.
+    updateCaseBarButtons();
   }
 
   showUploadSummary(caseName, ok, failed);
