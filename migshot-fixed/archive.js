@@ -603,6 +603,7 @@ function createCaptureCard(capture, displayIndex) {
         <span class="capture-number">Capture #${captureNumber}</span>
       </div>
       <span class="capture-time">${timeString}</span>
+      ${capture.uploadedAt ? `<span class="uploaded-badge" title="Uploaded to Sphere at ${capture.uploadedAt}">✓ Uploaded</span>` : ''}
     </div>
     
     <div class="capture-content">
