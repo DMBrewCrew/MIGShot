@@ -252,6 +252,7 @@ function renderCaseDropdown() {
   currentCaseKey = dropdown.children[0].value;
   dropdown.value = currentCaseKey;
   renderSubjectTabs();
+  updateCaseBarButtons();
 }
 
 // Render subject tabs
@@ -696,6 +697,106 @@ function renderCurrentView() {
   renderCaseDropdown();
 }
 
+function updateCaseBarButtons() {
+  const editBtn = document.getElementById('editCaseMigBtn');
+  const uploadBtn = document.getElementById('uploadCaseBtn');
+  const clearBtn = document.getElementById('clearUploadedBtn');
+  if (!editBtn || !uploadBtn || !clearBtn) return;
+
+  // Disable everything when no real case is selected.
+  if (!currentCaseKey || currentCaseKey === 'uncategorized' || currentCaseKey === '') {
+    editBtn.disabled = true;
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = '⬆ Upload to Sphere (0)';
+    clearBtn.disabled = true;
+    clearBtn.textContent = '🗑 Clear Uploaded (0)';
+    return;
+  }
+
+  const [caseName, caseMig] = currentCaseKey.split('|||');
+
+  // Count uploaded / un-uploaded captures for this case.
+  let uploaded = 0, unuploaded = 0;
+  (allCaptures || []).forEach(c => {
+    if (c.caseName !== caseName || c.caseMIG !== caseMig) return;
+    if (c.uploadedAt) uploaded++;
+    else unuploaded++;
+  });
+
+  editBtn.disabled = false;
+
+  uploadBtn.textContent = '⬆ Upload to Sphere (' + unuploaded + ')';
+  chrome.storage.local.get(['sphereUrl', 'sphereToken'], (s) => {
+    const configured = !!(s.sphereUrl && s.sphereToken);
+    if (unuploaded === 0) {
+      uploadBtn.disabled = true;
+      uploadBtn.title = 'Nothing new to upload';
+    } else if (!configured) {
+      uploadBtn.disabled = true;
+      uploadBtn.title = 'Set Sphere URL + token in ⚙ Sphere Settings first.';
+    } else {
+      uploadBtn.disabled = false;
+      uploadBtn.title = '';
+    }
+  });
+
+  clearBtn.textContent = '🗑 Clear Uploaded (' + uploaded + ')';
+  clearBtn.disabled = uploaded === 0;
+  clearBtn.title = uploaded === 0 ? 'No uploaded captures to clear' : '';
+}
+
+async function editCaseMIG() {
+  if (!currentCaseKey || currentCaseKey === 'uncategorized') return;
+  const [caseName, oldMig] = currentCaseKey.split('|||');
+
+  const newMig = prompt('New TrackOps Case # for "' + caseName + '":', oldMig);
+  if (newMig === null) return;
+  const trimmed = newMig.trim();
+  if (!trimmed) {
+    alert('Case # cannot be empty.');
+    return;
+  }
+  if (trimmed === oldMig) return;
+
+  const { cases, captures, currentCase } = await chrome.storage.local.get(
+    ['cases', 'captures', 'currentCase']
+  );
+
+  (cases || []).forEach(c => {
+    if (c.name === caseName && c.mig === oldMig) c.mig = trimmed;
+  });
+
+  let rewritten = 0;
+  (captures || []).forEach(cap => {
+    if (cap.caseName === caseName && cap.caseMIG === oldMig) {
+      cap.caseMIG = trimmed;
+      rewritten++;
+    }
+  });
+
+  if (currentCase && currentCase.name === caseName && currentCase.mig === oldMig) {
+    currentCase.mig = trimmed;
+  }
+
+  await chrome.storage.local.set({ cases, captures, currentCase });
+  alert('Updated. Rewrote ' + rewritten + ' capture(s).');
+  location.reload();
+}
+
+async function clearUploadedForCase() {
+  if (!currentCaseKey || currentCaseKey === 'uncategorized') return;
+  const [caseName, caseMig] = currentCaseKey.split('|||');
+
+  if (!confirm('Delete all uploaded captures for "' + caseName + '" (' + caseMig + ') from local storage? This cannot be undone.')) return;
+
+  const { captures } = await chrome.storage.local.get(['captures']);
+  const kept = (captures || []).filter(c =>
+    !(c.caseName === caseName && c.caseMIG === caseMig && c.uploadedAt)
+  );
+  await chrome.storage.local.set({ captures: kept });
+  location.reload();
+}
+
 // Setup event listeners
 function setupEventListeners() {
   // Case dropdown change
@@ -704,6 +805,7 @@ function setupEventListeners() {
     currentSubject = null;
     currentPlatform = null; // Will be set to first platform when rendering tabs
     renderSubjectTabs();
+    updateCaseBarButtons();
   });
   
   // Clear All button
@@ -719,6 +821,14 @@ function setupEventListeners() {
   document.getElementById('sphereSettingsBtn')?.addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
   });
+
+  // Sphere case-bar buttons
+  document.getElementById('editCaseMigBtn')?.addEventListener('click', editCaseMIG);
+  document.getElementById('uploadCaseBtn')?.addEventListener('click', () => {
+    // Wired in Task 8.
+    alert('Upload not implemented yet — coming in Task 8.');
+  });
+  document.getElementById('clearUploadedBtn')?.addEventListener('click', clearUploadedForCase);
   
   // Bulk actions
   document.getElementById('selectAllCheckbox').addEventListener('change', (e) => {

@@ -73,7 +73,8 @@
       border-bottom: 2px solid #e0e0e0;
       display: flex;
       align-items: center;
-      gap: 20px;
+      justify-content: space-between;
+      gap: 10px;
     }
 
     .case-selector {
@@ -793,6 +794,19 @@
       vertical-align: middle;
       cursor: help;
     }
+
+    /* Sphere case-bar action row */
+    .case-bar-actions { display: flex; gap: 8px; }
+    .case-bar-icon-btn {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      opacity: 0.6;
+      padding: 4px 6px;
+    }
+    .case-bar-icon-btn:hover:not(:disabled) { opacity: 1; }
+    .case-bar-icon-btn:disabled { opacity: 0.25; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -821,6 +835,11 @@
         <select class="case-dropdown" id="caseDropdown">
           <option value="">Loading...</option>
         </select>
+        <button type="button" id="editCaseMigBtn" class="case-bar-icon-btn" title="Edit TrackOps Case # for this case" disabled>✏️</button>
+      </div>
+      <div class="case-bar-actions">
+        <button type="button" id="uploadCaseBtn" class="btn btn-primary" disabled>⬆ Upload to Sphere (0)</button>
+        <button type="button" id="clearUploadedBtn" class="btn btn-secondary" disabled>🗑 Clear Uploaded (0)</button>
       </div>
     </div>
 
