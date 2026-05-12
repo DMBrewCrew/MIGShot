@@ -112,6 +112,9 @@ function setupEventListeners() {
   document.getElementById('caseNameInput')?.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') handleCreateCase();
   });
+  document.getElementById('caseMIGInput')?.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') handleCreateCase();
+  });
   document.getElementById('associateNameInput')?.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') handleAddAssociate();
   });
