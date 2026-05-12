@@ -80,6 +80,7 @@ function restoreFilterState() {
           
           // Clear the saved state after restoring
           sessionStorage.removeItem('migshot-filter-state');
+          updateCaseBarButtons();
           return true;
         }
       }
@@ -726,6 +727,7 @@ function updateCaseBarButtons() {
   editBtn.disabled = false;
 
   uploadBtn.textContent = '⬆ Upload to Sphere (' + unuploaded + ')';
+  uploadBtn.disabled = true;  // hold disabled until async config check resolves
   chrome.storage.local.get(['sphereUrl', 'sphereToken'], (s) => {
     const configured = !!(s.sphereUrl && s.sphereToken);
     if (unuploaded === 0) {
