@@ -1,12 +1,96 @@
 // Store current case info for keyboard shortcut captures
 let pendingCaseInfo = null;
 
+// Extract profile identifier from URL
+function extractProfileFromURL(url, platform) {
+  try {
+    const urlObj = new URL(url);
+    const hostname = urlObj.hostname.toLowerCase();
+    const pathname = urlObj.pathname;
+    
+    // Facebook
+    if (hostname.includes('facebook.com')) {
+      // IMPORTANT: Check ID parameter FIRST before pathname
+      // Profile ID: facebook.com/profile.php?id=123456&sk=... - extract full ID before &
+      const idParam = urlObj.searchParams.get('id');
+      if (idParam) {
+        // Return full ID (already extracted by searchParams, which stops at &)
+        return idParam;
+      }
+      
+      // Profile URL: facebook.com/username (only if no ID param found)
+      const match = pathname.match(/^\/([^\/\?]+)/);
+      if (match && match[1] && !['photo', 'photos', 'groups', 'pages', 'watch', 'marketplace', 'events', 'gaming', 'profile.php'].includes(match[1])) {
+        return match[1];
+      }
+    }
+    
+    // Instagram
+    if (hostname.includes('instagram.com')) {
+      // Profile: instagram.com/username
+      const match = pathname.match(/^\/([^\/\?]+)/);
+      if (match && match[1] && !['p', 'tv', 'reel', 'reels', 'stories', 'explore'].includes(match[1])) {
+        return match[1];
+      }
+    }
+    
+    // TikTok
+    if (hostname.includes('tiktok.com')) {
+      // Profile: tiktok.com/@username
+      const match = pathname.match(/^\/@([^\/\?]+)/);
+      if (match && match[1]) {
+        return '@' + match[1];
+      }
+    }
+    
+    // Twitter/X
+    if (hostname.includes('twitter.com') || hostname.includes('x.com')) {
+      // Profile: twitter.com/username
+      const match = pathname.match(/^\/([^\/\?]+)/);
+      if (match && match[1] && !['home', 'explore', 'notifications', 'messages', 'i', 'search'].includes(match[1])) {
+        return match[1];
+      }
+    }
+    
+    // LinkedIn
+    if (hostname.includes('linkedin.com')) {
+      // Profile: linkedin.com/in/username
+      const match = pathname.match(/^\/in\/([^\/\?]+)/);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+    
+    // YouTube
+    if (hostname.includes('youtube.com')) {
+      // Channel: youtube.com/@username or youtube.com/c/username
+      const match = pathname.match(/^\/@([^\/\?]+)|^\/c\/([^\/\?]+)|^\/channel\/([^\/\?]+)/);
+      if (match) {
+        return match[1] || match[2] || match[3];
+      }
+    }
+    
+    return null; // Could not extract profile
+  } catch (error) {
+    console.error('Error extracting profile from URL:', error);
+    return null;
+  }
+}
+
 // Handle keyboard shortcut (Alt+S and Alt+Shift+F)
 chrome.commands.onCommand.addListener(async (command) => {
   if (command === 'capture-post') {
     // Get current case before starting capture
     const result = await chrome.storage.local.get(['currentCase']);
     pendingCaseInfo = result.currentCase || null;
+    
+    // Check if case exists
+    if (!pendingCaseInfo || !pendingCaseInfo.name || !pendingCaseInfo.mig) {
+      // Set flag to show new case modal, then open popup
+      await chrome.storage.local.set({ showNewCaseModal: true });
+      chrome.action.openPopup();
+      return;
+    }
     
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]) {
@@ -17,6 +101,14 @@ chrome.commands.onCommand.addListener(async (command) => {
     // Get current case before starting rolling capture
     const result = await chrome.storage.local.get(['currentCase']);
     pendingCaseInfo = result.currentCase || null;
+    
+    // Check if case exists
+    if (!pendingCaseInfo || !pendingCaseInfo.name || !pendingCaseInfo.mig) {
+      // Set flag to show new case modal, then open popup
+      await chrome.storage.local.set({ showNewCaseModal: true });
+      chrome.action.openPopup();
+      return;
+    }
     
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]) {
@@ -118,6 +210,32 @@ async function captureSelectedArea(tabId, bounds, platform, url) {
   try {
     console.log('Capturing selected area:', bounds);
     
+    // Smart account selection: Always check for the highest account number for this platform
+    let accountIdentifier = '1'; // Default
+    
+    if (pendingCaseInfo && pendingCaseInfo.name && pendingCaseInfo.mig && pendingCaseInfo.currentSubject) {
+      // ALWAYS check existing captures to find highest account number for this platform
+      // This ensures we pick up manually-created accounts (e.g., FB 3)
+      const result = await chrome.storage.local.get(['captures']);
+      const captures = result.captures || [];
+      
+      const platformAccounts = captures
+        .filter(c => 
+          c.caseName === pendingCaseInfo.name && 
+          c.caseMIG === pendingCaseInfo.mig && 
+          c.subjectName === pendingCaseInfo.currentSubject &&
+          c.platform === platform
+        )
+        .map(c => parseInt(c.accountIdentifier) || 1);
+      
+      if (platformAccounts.length > 0) {
+        accountIdentifier = Math.max(...platformAccounts).toString();
+        console.log('Found highest account for', platform, ':', accountIdentifier);
+      } else {
+        console.log('No existing accounts for', platform, ', using default: 1');
+      }
+    }
+    
     // HIDE USER DATA before screenshot
     await new Promise((resolve) => {
       chrome.tabs.sendMessage(tabId, { action: 'hideUserData' }, () => {
@@ -149,14 +267,16 @@ async function captureSelectedArea(tabId, bounds, platform, url) {
     // Crop to selected bounds
     const finalScreenshot = await cropImage(fullScreenshot, bounds);
     
-    // Store in archive with case info
+    // Store in archive with case info and account
     const captureData = {
       url: url,
       screenshot: finalScreenshot,
       date: null,
       platform: platform,
-      isAboutPage: false, // Default to false, can be changed in archive
+      accountIdentifier: accountIdentifier,
+      isAboutPage: false,
       capturedAt: new Date().toISOString(),
+      sortOrders: {}, // Empty object - will be populated when user reorders
       // Case management fields
       caseName: pendingCaseInfo?.name || null,
       caseMIG: pendingCaseInfo?.mig || null,
@@ -167,13 +287,13 @@ async function captureSelectedArea(tabId, bounds, platform, url) {
     const usedCaseInfo = pendingCaseInfo;
     pendingCaseInfo = null;
     
-    const result = await chrome.storage.local.get(['captures']);
-    const captures = result.captures || [];
+    const storageResult = await chrome.storage.local.get(['captures']);
+    const captures = storageResult.captures || [];
     captures.push(captureData);
     
     try {
       await chrome.storage.local.set({ captures });
-      console.log('Capture saved to archive with case:', usedCaseInfo);
+      console.log('Capture saved to archive with case:', usedCaseInfo, 'account:', accountIdentifier);
     } catch (storageError) {
       console.error('Storage error:', storageError);
       throw new Error('Storage full! Please open Archive and delete some captures to free up space, then try again.');
@@ -544,215 +664,141 @@ async function determineOptimalOverlap(base64Image) {
 }
 
 // Capture rolling area by stitching multiple segments
-async function captureRollingArea(tabId, segments, platform, url, overlapAmount = 150) {
+async function captureRollingArea(tabId, segments, platform, url, overlapAmount = 100) {
   try {
-    console.log('🚀 Starting advanced rolling capture:', segments.length, 'segments with', overlapAmount, 'px overlap');
-    console.log('🛡️ Duplicate detection enabled: pHash, MSE, Histogram, Overlap Verification, Adaptive Overlap');
+    console.log('🚀 Starting rolling capture:', segments.length, 'segments');
 
-    // HIDE USER DATA and FIXED ELEMENTS before screenshots
-    await new Promise((resolve) => {
-      chrome.tabs.sendMessage(tabId, { action: 'hideUserData' }, () => {
-        if (chrome.runtime.lastError) {
-          console.log('Could not hide user data:', chrome.runtime.lastError.message);
-        }
-        resolve();
-      });
-    });
+    // Hide fixed elements before screenshots
+    await chrome.tabs.sendMessage(tabId, { action: 'hideFixedElements' }).catch(() => {});
+    await new Promise(resolve => setTimeout(resolve, 200));
 
-    await new Promise((resolve) => {
-      chrome.tabs.sendMessage(tabId, { action: 'hideFixedElements' }, () => {
-        if (chrome.runtime.lastError) {
-          console.log('Could not hide fixed elements:', chrome.runtime.lastError.message);
-        }
-        resolve();
-      });
-    });
-
-    await new Promise(resolve => setTimeout(resolve, 300));
-
-    // Capture each segment with advanced duplicate detection
+    // Capture each segment - detect bottom dynamically
     const segmentImages = [];
-    const segmentMetadata = []; // Store hashes and histograms
-    let previousScrollY = null;
-    let duplicatesSkipped = 0;
-    let blanksSkipped = 0;
+    let lastActualScrollY = -1; // Track where we actually scrolled to in previous iteration
 
-    for (let i = 0; i < segments.length; i++) {
-      const segment = segments[i];
+    try {
+      for (let i = 0; i < segments.length; i++) {
+        const segment = segments[i];
 
-      // Update progress indicator
-      await chrome.tabs.sendMessage(tabId, {
-        action: 'updateProgress',
-        currentSegment: i + 1,
-        totalSegments: segments.length
-      }).catch(() => {}); // Ignore errors if content script was removed
+        // Update progress
+        await chrome.tabs.sendMessage(tabId, {
+          action: 'updateProgress',
+          currentSegment: i + 1,
+          totalSegments: segments.length
+        }).catch(() => {});
 
-      // TECHNIQUE #6: Scroll Position Validation
-      if (previousScrollY !== null) {
-        const expectedDelta = segment.scrollY - previousScrollY;
-        const minExpectedDelta = 50; // Minimum 50px movement required
+        // Scroll to position and check where we actually ended up
+        const scrollResponse = await new Promise((resolve) => {
+          chrome.tabs.sendMessage(tabId, {
+            action: 'scrollAndWait',
+            scrollY: segment.scrollY
+          }, (response) => {
+            resolve(response || { actualScrollY: segment.scrollY });
+          });
+        });
 
-        if (expectedDelta < minExpectedDelta) {
-          console.log(`⚠️ Segment ${i + 1}: Scroll delta too small (${expectedDelta}px), likely duplicate - SKIPPING`);
-          duplicatesSkipped++;
-          continue;
+        const actualScrollY = scrollResponse.actualScrollY;
+        
+        // CRITICAL: Detect if we've hit the bottom
+        // Two conditions that indicate we're at the bottom:
+        
+        // 1. We tried to scroll far but ended up significantly short
+        const scrollDifference = segment.scrollY - actualScrollY;
+        const hitBottom = scrollDifference > 100; // More than 100px short means we hit the bottom
+        
+        // 2. We're at the same position as last iteration (stuck at bottom)
+        const stuckAtBottom = i > 0 && Math.abs(actualScrollY - lastActualScrollY) < 50;
+        
+        if ((hitBottom || stuckAtBottom) && i > 0) {
+          // We've hit the bottom - this would be a duplicate of the previous position
+          console.log(`🛑 Hit bottom at scroll ${actualScrollY}, requested ${segment.scrollY}. Stopping.`);
+          
+          // Update progress to show we're done (even though we didn't capture all planned segments)
+          await chrome.tabs.sendMessage(tabId, {
+            action: 'updateProgress',
+            currentSegment: i, // We captured i segments (0-indexed, so i is the count)
+            totalSegments: i  // Update total to match what we actually captured
+          }).catch(() => {});
+          
+          break;
+        }
+        
+        // Remember this position for next iteration
+        lastActualScrollY = actualScrollY;
+
+        // Small delay for page to settle after scroll
+        await new Promise(resolve => setTimeout(resolve, 200));
+
+        // Capture screenshot
+        const screenshot = await chrome.tabs.captureVisibleTab(null, {
+          format: 'png'
+        });
+
+        // Crop to bounds
+        const croppedImage = await cropImage(screenshot, segment.bounds);
+        
+        console.log(`✅ Segment ${i + 1}/${segments.length} captured at actual scroll: ${actualScrollY}`);
+        segmentImages.push(croppedImage);
+
+        // CRITICAL: Wait to respect Chrome's rate limit (2 captures per second max)
+        // Wait 700ms between captures to stay safely under the limit
+        if (i < segments.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 700));
         }
       }
-      previousScrollY = segment.scrollY;
-
-      // Scroll to the position and wait for completion
-      const scrollResponse = await chrome.tabs.sendMessage(tabId, {
-        action: 'scrollAndWait',
-        scrollY: segment.scrollY
-      });
-
-      // Log scroll validation info
-      if (scrollResponse && scrollResponse.scrollDelta !== undefined) {
-        console.log(`📜 Scroll validation: target=${segment.scrollY}, actual=${scrollResponse.actualScrollY}, delta=${scrollResponse.scrollDelta}px`);
-
-        // Additional check: if we didn't scroll enough from previous position
-        if (previousScrollY !== null && scrollResponse.scrollDelta < 50) {
-          console.log(`⚠️ Segment ${i + 1}: Actual scroll delta too small (${scrollResponse.scrollDelta}px) - SKIPPING`);
-          duplicatesSkipped++;
-          continue;
-        }
-      }
-
-      // Capture screenshot
-      const screenshot = await chrome.tabs.captureVisibleTab(null, {
-        format: 'png'
-      });
-
-      // Crop to bounds
-      const croppedImage = await cropImage(screenshot, segment.bounds);
-
-      // EXISTING: Check if segment is blank
-      const isBlank = await isBlankSegment(croppedImage);
-      if (isBlank) {
-        console.log(`⬜ Segment ${i + 1}/${segments.length} is blank - SKIPPING`);
-        blanksSkipped++;
-        continue;
-      }
-
-      // Generate analysis data for duplicate detection
-      let shouldSkip = false;
-      let skipReason = '';
-
-      if (segmentImages.length > 0) {
-        const previousImage = segmentImages[segmentImages.length - 1];
-        const previousMetadata = segmentMetadata[segmentMetadata.length - 1];
-
-        // TECHNIQUE #1: Perceptual Hash Comparison
-        const currentHash = await generatePerceptualHash(croppedImage);
-        if (currentHash && previousMetadata.hash) {
-          const hashSimilarity = compareHashes(previousMetadata.hash, currentHash);
-          if (hashSimilarity > 90) {
-            shouldSkip = true;
-            skipReason = `pHash similarity ${hashSimilarity.toFixed(1)}% (>90%)`;
-          }
-        }
-
-        // TECHNIQUE #2: Overlap Region Verification (if not already skipped)
-        if (!shouldSkip && overlapAmount > 0) {
-          const overlapPixels = Math.floor(overlapAmount * (segment.bounds.devicePixelRatio || 1));
-          const overlapMSE = await verifyOverlapMatch(previousImage, croppedImage, overlapPixels);
-
-          // If overlap regions are too different (MSE > 1000), something's wrong
-          // If overlap regions are TOO similar (MSE < 10), it's likely a duplicate
-          if (overlapMSE < 10) {
-            shouldSkip = true;
-            skipReason = `Overlap MSE ${overlapMSE.toFixed(1)} - too similar (duplicate)`;
-          }
-        }
-
-        // TECHNIQUE #3: Full Image MSE Similarity (if not already skipped)
-        if (!shouldSkip) {
-          const imageMSE = await calculateImageSimilarity(previousImage, croppedImage);
-          if (imageMSE < 50) { // Very low MSE = nearly identical
-            shouldSkip = true;
-            skipReason = `Image MSE ${imageMSE.toFixed(1)} - nearly identical`;
-          }
-        }
-
-        // TECHNIQUE #4: Histogram Comparison (if not already skipped)
-        if (!shouldSkip) {
-          const currentHistogram = await generateHistogram(croppedImage);
-          if (currentHistogram && previousMetadata.histogram) {
-            const histogramSimilarity = compareHistograms(previousMetadata.histogram, currentHistogram);
-            if (histogramSimilarity > 95) {
-              shouldSkip = true;
-              skipReason = `Histogram similarity ${histogramSimilarity.toFixed(1)}% (>95%)`;
-            }
-          }
-        }
-
-        if (shouldSkip) {
-          console.log(`🚫 Segment ${i + 1}/${segments.length} detected as DUPLICATE - ${skipReason} - SKIPPING`);
-          duplicatesSkipped++;
-          continue;
-        }
-      }
-
-      // TECHNIQUE #5: Adaptive Overlap (for next iteration)
-      // Determine optimal overlap for future segments based on content complexity
-      const optimalOverlap = await determineOptimalOverlap(croppedImage);
-      console.log(`✅ Segment ${i + 1}/${segments.length} captured (content: ${optimalOverlap.contentType}, suggested overlap: ${optimalOverlap.overlap}px)`);
-
-      // Store segment and metadata
-      segmentImages.push(croppedImage);
-      segmentMetadata.push({
-        hash: await generatePerceptualHash(croppedImage),
-        histogram: await generateHistogram(croppedImage),
-        optimalOverlap: optimalOverlap
-      });
-
-      // IMPORTANT: Wait between captures to respect Chrome's rate limit
-      // Chrome allows ~2 captures/second, so wait 600ms between each
-      if (i < segments.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 600));
-      }
+    } finally {
+      // ALWAYS restore fixed elements, even if capture fails
+      await chrome.tabs.sendMessage(tabId, { action: 'restoreFixedElements' }).catch(() => {});
     }
 
-    console.log(`📊 Capture Summary: ${segmentImages.length} segments kept, ${blanksSkipped} blanks skipped, ${duplicatesSkipped} duplicates skipped`);
+    console.log(`📊 Captured ${segmentImages.length} segments successfully`);
     
-    // RESTORE USER DATA and FIXED ELEMENTS after screenshots
-    await new Promise((resolve) => {
-      chrome.tabs.sendMessage(tabId, { action: 'restoreUserData' }, () => {
-        if (chrome.runtime.lastError) {
-          console.log('Could not restore user data:', chrome.runtime.lastError.message);
-        }
-        resolve();
-      });
-    });
-    
-    await new Promise((resolve) => {
-      chrome.tabs.sendMessage(tabId, { action: 'restoreFixedElements' }, () => {
-        if (chrome.runtime.lastError) {
-          console.log('Could not restore fixed elements:', chrome.runtime.lastError.message);
-        }
-        resolve();
-      });
-    });
-    
-    // Check if we have any non-blank segments
     if (segmentImages.length === 0) {
-      throw new Error('All segments were filtered out (blank or duplicates) - nothing to capture!');
+      throw new Error('No segments captured!');
     }
 
-    // Stitch images together
+    // Stitch images together with fixed overlap
     const devicePixelRatio = segments[0]?.bounds?.devicePixelRatio || 1;
     const stitchedImage = await stitchImages(segmentImages, overlapAmount, devicePixelRatio);
 
-    console.log(`✨ Successfully stitched ${segmentImages.length} unique segments (filtered ${blanksSkipped} blanks + ${duplicatesSkipped} duplicates from ${segments.length} total)`);
+    console.log('✅ Rolling capture complete - stitched image created');
+
+    // Smart account selection: Always check for the highest account number for this platform
+    let accountIdentifier = '1'; // Default
     
-    // Store in archive with case info
+    if (pendingCaseInfo && pendingCaseInfo.name && pendingCaseInfo.mig && pendingCaseInfo.currentSubject) {
+      // ALWAYS check existing captures to find highest account number for this platform
+      // This ensures we pick up manually-created accounts (e.g., FB 3)
+      const result = await chrome.storage.local.get(['captures']);
+      const captures = result.captures || [];
+      
+      const platformAccounts = captures
+        .filter(c => 
+          c.caseName === pendingCaseInfo.name && 
+          c.caseMIG === pendingCaseInfo.mig && 
+          c.subjectName === pendingCaseInfo.currentSubject &&
+          c.platform === platform
+        )
+        .map(c => parseInt(c.accountIdentifier) || 1);
+      
+      if (platformAccounts.length > 0) {
+        accountIdentifier = Math.max(...platformAccounts).toString();
+        console.log('Rolling: Found highest account for', platform, ':', accountIdentifier);
+      } else {
+        console.log('Rolling: No existing accounts for', platform, ', using default: 1');
+      }
+    }
+
+    // Store in archive
     const captureData = {
       url: url,
       screenshot: stitchedImage,
       date: null,
       platform: platform,
+      accountIdentifier: accountIdentifier,
       isAboutPage: false,
       capturedAt: new Date().toISOString(),
+      sortOrders: {},
       caseName: pendingCaseInfo?.name || null,
       caseMIG: pendingCaseInfo?.mig || null,
       subjectName: pendingCaseInfo?.currentSubject || null
@@ -761,21 +807,21 @@ async function captureRollingArea(tabId, segments, platform, url, overlapAmount 
     // Clear pending case info
     const usedCaseInfo = pendingCaseInfo;
     pendingCaseInfo = null;
-    
-    const result = await chrome.storage.local.get(['captures']);
-    const captures = result.captures || [];
+
+    const storageResult = await chrome.storage.local.get(['captures']);
+    const captures = storageResult.captures || [];
     captures.push(captureData);
     
     try {
       await chrome.storage.local.set({ captures });
-      console.log('Rolling capture saved to archive with case:', usedCaseInfo);
+      console.log('Rolling capture saved with case:', usedCaseInfo, 'account:', accountIdentifier);
     } catch (storageError) {
       console.error('Storage error:', storageError);
-      throw new Error('Storage full! Please open Archive and delete some captures to free up space, then try again.');
+      throw new Error('Storage full! Please delete some captures.');
     }
-    
+
     return captureData;
-    
+
   } catch (error) {
     console.error('Rolling capture error:', error);
     throw new Error('Failed to capture rolling area: ' + error.message);
@@ -893,25 +939,37 @@ async function cropImage(base64Image, bounds) {
 
 // Generate date badge (only called when date exists and is 2025)
 async function generateDateBadge(dateText) {
-  const canvas = new OffscreenCanvas(150, 40);
+  const canvas = new OffscreenCanvas(160, 45);
   const ctx = canvas.getContext('2d');
   
-  const gradient = ctx.createLinearGradient(0, 0, 0, 40);
+  // Main background gradient
+  const gradient = ctx.createLinearGradient(0, 0, 0, 45);
   gradient.addColorStop(0, '#2B5F6F');
   gradient.addColorStop(1, '#1a3d48');
   ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, 150, 40);
+  ctx.fillRect(0, 0, 160, 45);
   
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-  ctx.fillRect(0, 35, 150, 5);
+  // Gold bottom stripe
+  ctx.fillStyle = '#9B9565';
+  ctx.fillRect(0, 40, 160, 5);
+  
+  // White text with shadow for better readability
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+  ctx.shadowBlur = 1;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 1;
   
   ctx.fillStyle = '#FFFFFF';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = 'bold 6px Arial, sans-serif';
-  ctx.fillText('POSTED ON', 75, 10);
-  ctx.font = 'bold 16px Arial, sans-serif';
-  ctx.fillText(dateText, 75, 25);
+  
+  // "POSTED ON" text - small but readable
+  ctx.font = 'bold 8px Arial, sans-serif';
+  ctx.fillText('POSTED ON', 80, 12);
+  
+  // Date text - larger and bold
+  ctx.font = 'bold 18px Arial, sans-serif';
+  ctx.fillText(dateText, 80, 28);
   
   const blob = await canvas.convertToBlob({ type: 'image/png' });
   return await blobToBase64(blob);

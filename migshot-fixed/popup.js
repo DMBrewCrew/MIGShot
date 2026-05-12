@@ -5,6 +5,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Set up event listeners
   setupEventListeners();
+  
+  // Check if we should show new case modal (triggered by capture attempt without case)
+  const result = await chrome.storage.local.get(['showNewCaseModal']);
+  if (result.showNewCaseModal) {
+    // Clear the flag
+    await chrome.storage.local.remove('showNewCaseModal');
+    // Show the new case modal
+    showNewCaseModal();
+  }
 });
 
 // Load and display current case state
@@ -25,7 +34,7 @@ async function loadCaseState() {
     cases.forEach(caseData => {
       const option = document.createElement('option');
       option.value = `${caseData.name}|||${caseData.mig}`;
-      option.textContent = `${caseData.name} (${caseData.mig})`;
+      option.textContent = caseData.name;
       if (caseData.name === currentCase.name && caseData.mig === currentCase.mig) {
         option.selected = true;
       }
@@ -100,7 +109,7 @@ function setupEventListeners() {
   });
   
   // Enter key to submit modals
-  document.getElementById('caseMIGInput')?.addEventListener('keypress', (e) => {
+  document.getElementById('caseNameInput')?.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') handleCreateCase();
   });
   document.getElementById('associateNameInput')?.addEventListener('keypress', (e) => {
@@ -112,7 +121,6 @@ function setupEventListeners() {
 function showNewCaseModal() {
   document.getElementById('newCaseModal').classList.add('show');
   document.getElementById('caseNameInput').value = '';
-  document.getElementById('caseMIGInput').value = '';
   document.getElementById('caseNameInput').focus();
 }
 
@@ -123,24 +131,19 @@ function hideNewCaseModal() {
 // Handle Create Case
 async function handleCreateCase() {
   const name = document.getElementById('caseNameInput').value.trim();
-  const mig = document.getElementById('caseMIGInput').value.trim();
   
-  if (!name || !mig) {
-    showError('Please fill in both Name and MIG#');
+  if (!name) {
+    showError('Please enter a case name');
     return;
   }
   
-  // Validate MIG format (#####-#)
-  const migPattern = /^\d{5}-\d$/;
-  if (!migPattern.test(mig)) {
-    showError('MIG# must be in format: #####-# (e.g., 12345-1)');
-    return;
-  }
+  // Auto-generate a unique case ID using timestamp
+  const caseId = Date.now().toString();
   
   // Create new case
   const newCase = {
     name: name,
-    mig: mig,
+    mig: caseId, // Use generated ID as "mig" for backward compatibility
     subjects: [name], // Primary subject is the case name
     primarySubject: name
   };
@@ -149,14 +152,14 @@ async function handleCreateCase() {
   const result = await chrome.storage.local.get(['cases']);
   const cases = result.cases || [];
   
-  // Check if case already exists
-  const existingCase = cases.find(c => c.name === name && c.mig === mig);
+  // Check if case with same name already exists
+  const existingCase = cases.find(c => c.name === name);
   if (existingCase) {
     // Case exists, just set it as current
     await chrome.storage.local.set({
       currentCase: {
         name: name,
-        mig: mig,
+        mig: existingCase.mig,
         currentSubject: name
       }
     });
@@ -167,7 +170,7 @@ async function handleCreateCase() {
       cases: cases,
       currentCase: {
         name: name,
-        mig: mig,
+        mig: caseId,
         currentSubject: name
       }
     });

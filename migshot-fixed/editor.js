@@ -18,6 +18,12 @@ let arrowStart = null;
 let captureIndex = null;
 let currentZoom = 1;
 
+// Panning variables
+let isPanning = false;
+let panMode = false; // True when spacebar is held
+let panStart = { x: 0, y: 0 };
+let panOffset = { x: 0, y: 0 };
+
 // Mask canvas for highlights - accumulates all highlight strokes
 let maskCanvas, maskCtx;
 // Temp canvas for colorizing (created once, reused)
@@ -45,13 +51,14 @@ async function initializeEditor() {
     const result = await chrome.storage.local.get(['captures']);
     const captures = result.captures || [];
     
-    if (captureIndex >= captures.length) {
+    // Find capture by originalIndex instead of array position
+    const capture = captures.find(c => c.originalIndex === captureIndex);
+    
+    if (!capture) {
       showToast('Error: Image not found', 'error');
       setTimeout(() => window.close(), 2000);
       return;
     }
-    
-    const capture = captures[captureIndex];
     
     // Load image
     const img = new Image();
@@ -136,10 +143,43 @@ function setupEventListeners() {
   canvas.addEventListener('mouseup', handleCanvasMouseUp);
   canvas.addEventListener('mouseleave', handleCanvasMouseUp);
   
+  // Middle mouse button for panning
+  canvas.addEventListener('auxclick', (e) => {
+    if (e.button === 1) { // Middle button
+      e.preventDefault();
+    }
+  });
+  
   // Touch support for tablets
   canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
   canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
   canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+  
+  // Spacebar for pan mode
+  document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && !panMode && !e.repeat) {
+      e.preventDefault();
+      panMode = true;
+      if (!isPanning) {
+        canvas.style.cursor = 'grab';
+      }
+    }
+  });
+  
+  document.addEventListener('keyup', (e) => {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      panMode = false;
+      isPanning = false;
+      if (currentTool === 'highlight') {
+        canvas.style.cursor = 'crosshair';
+      } else if (currentTool === 'arrow') {
+        canvas.style.cursor = 'crosshair';
+      } else {
+        canvas.style.cursor = 'default';
+      }
+    }
+  });
   
   // Keyboard shortcuts
   document.addEventListener('keydown', handleKeyboard);
@@ -163,6 +203,15 @@ function selectTool(tool) {
 }
 
 function handleCanvasMouseDown(e) {
+  // Middle mouse button or spacebar held = panning
+  if (e.button === 1 || panMode) {
+    e.preventDefault();
+    isPanning = true;
+    panStart = { x: e.clientX - panOffset.x, y: e.clientY - panOffset.y };
+    canvas.style.cursor = 'grabbing';
+    return;
+  }
+  
   if (!currentTool) return;
   
   const rect = canvas.getBoundingClientRect();
@@ -182,6 +231,14 @@ function handleCanvasMouseDown(e) {
 }
 
 function handleCanvasMouseMove(e) {
+  // Handle panning
+  if (isPanning) {
+    panOffset.x = e.clientX - panStart.x;
+    panOffset.y = e.clientY - panStart.y;
+    updateCanvasPosition();
+    return;
+  }
+  
   if (!isDrawing) return;
   
   const rect = canvas.getBoundingClientRect();
@@ -205,7 +262,15 @@ function handleCanvasMouseMove(e) {
 }
 
 function handleCanvasMouseUp(e) {
+  // End panning
+  if (isPanning) {
+    isPanning = false;
+    canvas.style.cursor = panMode ? 'grab' : (currentTool === 'highlight' || currentTool === 'arrow' ? 'crosshair' : 'default');
+    return;
+  }
+  
   if (!isDrawing) return;
+
 
   const rect = canvas.getBoundingClientRect();
   // Get actual canvas coordinates accounting for CSS scaling
@@ -415,7 +480,7 @@ function redrawCanvas() {
     ctx.restore();
   }
 
-  // Redraw arrows on top - ensures all arrows persist
+  // Redraw arrows on top - ensures all persist
   drawHistory.forEach(action => {
     if (action.type === 'arrow') {
       drawArrow(action.start.x, action.start.y, action.end.x, action.end.y);
@@ -481,10 +546,16 @@ async function saveEditedImage() {
     const result = await chrome.storage.local.get(['captures']);
     const captures = result.captures || [];
     
-    // Update the capture with edited image
-    captures[captureIndex].screenshot = editedDataUrl;
-    captures[captureIndex].edited = true;
-    captures[captureIndex].editedAt = new Date().toISOString();
+    // Find the capture by originalIndex and update it
+    const capture = captures.find(c => c.originalIndex === captureIndex);
+    if (!capture) {
+      showToast('Error: Could not find capture to save', 'error');
+      return;
+    }
+    
+    capture.screenshot = editedDataUrl;
+    capture.edited = true;
+    capture.editedAt = new Date().toISOString();
     
     // Save back to storage
     await chrome.storage.local.set({ captures });
@@ -510,14 +581,18 @@ function cancelEdit() {
   window.location.href = 'archive.html';
 }
 
+// Update canvas position based on pan offset
+function updateCanvasPosition() {
+  canvas.style.transform = `scale(${currentZoom}) translate(${panOffset.x / currentZoom}px, ${panOffset.y / currentZoom}px)`;
+  canvas.style.transformOrigin = 'center';
+}
+
 // Zoom functions
 function adjustZoom(factor) {
   const newZoom = currentZoom * factor;
   if (newZoom >= 0.1 && newZoom <= 5) {
     currentZoom = newZoom;
-    // Use CSS transform for visual zoom only
-    canvas.style.transform = `scale(${currentZoom})`;
-    canvas.style.transformOrigin = 'center';
+    updateCanvasPosition();
     document.getElementById('zoomLevel').textContent = Math.round(currentZoom * 100) + '%';
   }
 }
@@ -531,13 +606,19 @@ function fitToWindow() {
   const scaleY = containerHeight / canvas.height;
   currentZoom = Math.min(scaleX, scaleY, 1);
   
-  canvas.style.transform = `scale(${currentZoom})`;
-  canvas.style.transformOrigin = 'center';
+  // Reset pan offset when fitting to window
+  panOffset = { x: 0, y: 0 };
+  updateCanvasPosition();
   document.getElementById('zoomLevel').textContent = Math.round(currentZoom * 100) + '%';
 }
 
 // Keyboard shortcuts
 function handleKeyboard(e) {
+  // Spacebar is handled separately for pan mode
+  if (e.code === 'Space') {
+    return;
+  }
+  
   if (e.ctrlKey || e.metaKey) {
     switch(e.key) {
       case 'z':
@@ -578,3 +659,4 @@ function showToast(message, type = 'info') {
     toast.classList.remove('show');
   }, 3000);
 }
+
