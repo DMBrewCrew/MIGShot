@@ -925,7 +925,7 @@ async function uploadCaseToSphere() {
             captured_at:   c.capturedAt || '',
             posted_at:     c.date || '',
             is_about_page: !!c.isAboutPage,
-            notes:         '',
+            notes:         c.notes || '',
           }),
         });
 
