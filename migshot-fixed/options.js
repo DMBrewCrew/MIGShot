@@ -61,9 +61,56 @@ saveBtn.addEventListener('click', async () => {
   }
 });
 
-testBtn.addEventListener('click', () => {
-  // Wired in Task 3.
-  showStatus('err', 'Test Connection not implemented yet.');
+testBtn.addEventListener('click', async () => {
+  clearStatus();
+  const url = normalizeUrl(urlInput.value);
+  const token = (tokenInput.value || '').trim();
+
+  if (!/^https?:\/\//i.test(url)) {
+    showStatus('err', 'Enter a valid URL first.');
+    return;
+  }
+  if (!token) {
+    showStatus('err', 'Enter an API token first.');
+    return;
+  }
+
+  testBtn.disabled = true;
+  testBtn.textContent = 'Testing…';
+
+  try {
+    const origin = url + '/*';
+    const granted = await chrome.permissions.request({ origins: [origin] });
+    if (!granted) {
+      showStatus('err', 'Permission to reach ' + url + ' was denied. Click Test again and approve.');
+      return;
+    }
+
+    const res = await fetch(url + '/api/captures', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    });
+
+    if (res.status === 401) {
+      showStatus('err', '✗ Token rejected. Generate a new one at ' + url + '/settings.');
+    } else if (res.status === 400) {
+      showStatus('ok', '✓ Connected. Token works.');
+    } else if (res.ok) {
+      showStatus('ok', '✓ Connected (unexpected ' + res.status + ' but no auth error).');
+    } else {
+      const text = await res.text().catch(() => '');
+      showStatus('err', '✗ HTTP ' + res.status + ': ' + (text.slice(0, 200) || 'no body'));
+    }
+  } catch (e) {
+    showStatus('err', '✗ Network error: ' + e.message + ' — is the platform running?');
+  } finally {
+    testBtn.disabled = false;
+    testBtn.textContent = 'Test Connection';
+  }
 });
 
 loadSettings();
