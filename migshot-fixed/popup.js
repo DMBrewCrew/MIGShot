@@ -121,6 +121,7 @@ function setupEventListeners() {
 function showNewCaseModal() {
   document.getElementById('newCaseModal').classList.add('show');
   document.getElementById('caseNameInput').value = '';
+  document.getElementById('caseMIGInput').value = '';
   document.getElementById('caseNameInput').focus();
 }
 
@@ -131,51 +132,49 @@ function hideNewCaseModal() {
 // Handle Create Case
 async function handleCreateCase() {
   const name = document.getElementById('caseNameInput').value.trim();
-  
+  const mig = document.getElementById('caseMIGInput').value.trim();
+
   if (!name) {
     showError('Please enter a case name');
     return;
   }
-  
-  // Auto-generate a unique case ID using timestamp
-  const caseId = Date.now().toString();
-  
-  // Create new case
+  if (!mig) {
+    showError('Please enter the TrackOps Case #');
+    return;
+  }
+
   const newCase = {
     name: name,
-    mig: caseId, // Use generated ID as "mig" for backward compatibility
-    subjects: [name], // Primary subject is the case name
+    mig: mig,
+    subjects: [name],
     primarySubject: name
   };
-  
-  // Add to cases array
+
   const result = await chrome.storage.local.get(['cases']);
   const cases = result.cases || [];
-  
-  // Check if case with same name already exists
-  const existingCase = cases.find(c => c.name === name);
+
+  // If a case already exists with this exact (name, mig) pair, reuse it.
+  const existingCase = cases.find(c => c.name === name && c.mig === mig);
   if (existingCase) {
-    // Case exists, just set it as current
     await chrome.storage.local.set({
       currentCase: {
         name: name,
-        mig: existingCase.mig,
+        mig: mig,
         currentSubject: name
       }
     });
   } else {
-    // New case, add it
     cases.push(newCase);
     await chrome.storage.local.set({
       cases: cases,
       currentCase: {
         name: name,
-        mig: caseId,
+        mig: mig,
         currentSubject: name
       }
     });
   }
-  
+
   hideNewCaseModal();
   await loadCaseState();
   showSuccess('Case created: ' + name);
