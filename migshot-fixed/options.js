@@ -92,11 +92,13 @@ testBtn.addEventListener('click', async () => {
         'Authorization': 'Bearer ' + token,
         'Content-Type': 'application/json',
       },
+      // Body must be valid JSON so the server reaches auth-check before JSON-parse-error.
       body: '{}',
     });
 
     if (res.status === 401) {
       showStatus('err', '✗ Token rejected. Generate a new one at ' + url + '/settings.');
+    // 400 = auth passed but body is invalid (case_number missing) — confirms token works.
     } else if (res.status === 400) {
       showStatus('ok', '✓ Connected. Token works.');
     } else if (res.ok) {
