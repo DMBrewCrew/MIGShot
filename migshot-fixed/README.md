@@ -150,6 +150,11 @@ In the archive, each case header shows:
 - **⬆ Upload to Sphere (N)** — pushes the N un-uploaded captures for
   the active case. Successful captures get a green "✓ Uploaded" badge.
   Failures are listed in a summary modal at the end.
+- **🔄 Resend All (T)** — after confirming, re-POSTs **every** one of the
+  T shots in the case, including ones already marked uploaded, and refreshes
+  their `uploadedAt` / capture IDs. Use this only to rebuild a case that was
+  wiped or recreated server-side in Nexus, where a normal upload would skip
+  the already-uploaded shots.
 - **🗑 Clear Uploaded (M)** — after confirming, deletes M uploaded
   captures from local storage to free up Chrome's quota.
 

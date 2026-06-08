@@ -701,14 +701,17 @@ function renderCurrentView() {
 function updateCaseBarButtons() {
   const editBtn = document.getElementById('editCaseMigBtn');
   const uploadBtn = document.getElementById('uploadCaseBtn');
+  const resendBtn = document.getElementById('resendCaseBtn');
   const clearBtn = document.getElementById('clearUploadedBtn');
-  if (!editBtn || !uploadBtn || !clearBtn) return;
+  if (!editBtn || !uploadBtn || !resendBtn || !clearBtn) return;
 
   // Disable everything when no real case is selected.
   if (!currentCaseKey || currentCaseKey === 'uncategorized' || currentCaseKey === '') {
     editBtn.disabled = true;
     uploadBtn.disabled = true;
     uploadBtn.textContent = '⬆ Upload to Sphere (0)';
+    resendBtn.disabled = true;
+    resendBtn.textContent = '🔄 Resend All (0)';
     clearBtn.disabled = true;
     clearBtn.textContent = '🗑 Clear Uploaded (0)';
     return;
@@ -726,8 +729,11 @@ function updateCaseBarButtons() {
 
   editBtn.disabled = false;
 
+  const total = uploaded + unuploaded;
   uploadBtn.textContent = '⬆ Upload to Sphere (' + unuploaded + ')';
   uploadBtn.disabled = true;  // hold disabled until async config check resolves
+  resendBtn.textContent = '🔄 Resend All (' + total + ')';
+  resendBtn.disabled = true;  // hold disabled until async config check resolves
   chrome.storage.local.get(['sphereUrl', 'sphereToken'], (s) => {
     const configured = !!(s.sphereUrl && s.sphereToken);
     if (unuploaded === 0) {
@@ -739,6 +745,19 @@ function updateCaseBarButtons() {
     } else {
       uploadBtn.disabled = false;
       uploadBtn.title = '';
+    }
+
+    // Resend re-POSTs every shot in the case, so it only needs at least one
+    // capture present (it ignores the uploadedAt flags).
+    if (total === 0) {
+      resendBtn.disabled = true;
+      resendBtn.title = 'No shots in this case to resend';
+    } else if (!configured) {
+      resendBtn.disabled = true;
+      resendBtn.title = 'Set Sphere URL + token in ⚙ Sphere Settings first.';
+    } else {
+      resendBtn.disabled = false;
+      resendBtn.title = 'Re-send every shot in this case to Sphere — use only to rebuild a case that was wiped/recreated in Nexus.';
     }
   });
 
@@ -865,46 +884,22 @@ function showUploadSummary(caseName, okCount, failures) {
   document.body.appendChild(overlay);
 }
 
-async function uploadCaseToSphere() {
-  if (!currentCaseKey || currentCaseKey === 'uncategorized') return;
-  const [caseName, caseMig] = currentCaseKey.split('|||');
-
-  const { sphereUrl, sphereToken, captures } = await chrome.storage.local.get(
-    ['sphereUrl', 'sphereToken', 'captures']
-  );
-
-  if (!sphereUrl || !sphereToken) {
-    alert('Set Sphere URL + token in ⚙ Sphere Settings first.');
-    return;
-  }
-
-  const all = captures || [];
-  const targets = [];
-  all.forEach((c, idx) => {
-    if (c.caseName === caseName && c.caseMIG === caseMig && !c.uploadedAt) {
-      targets.push({ c, idx });
-    }
-  });
-
-  if (targets.length === 0) {
-    alert('Nothing to upload — all captures for this case are already uploaded.');
-    return;
-  }
-
+// Shared POST loop for both ⬆ Upload (new shots only) and 🔄 Resend All
+// (every shot). `targets` is an array of { c, idx } into `all`. `progressBtn`
+// gets the running "N/M…" label; all sibling case-bar buttons are locked for
+// the duration because ✏️ and 🗑 both call location.reload(), which would
+// corrupt the captures array we're mid-mutating.
+async function sendCaseCapturesToSphere({ caseName, caseMig, sphereUrl, sphereToken, all, targets, progressBtn, progressLabel }) {
   const uploadBtn = document.getElementById('uploadCaseBtn');
   const editBtn = document.getElementById('editCaseMigBtn');
   const clearBtn = document.getElementById('clearUploadedBtn');
+  const resendBtn = document.getElementById('resendCaseBtn');
+
+  [uploadBtn, editBtn, clearBtn, resendBtn].forEach(b => { if (b) b.disabled = true; });
+  if (progressBtn) progressBtn.textContent = progressLabel + '0/' + targets.length + '…';
+
   let ok = 0;
   const failed = [];
-  // Lock all case-bar actions for the duration of the loop. The ✏️ and 🗑
-  // sibling actions both call location.reload(), which would corrupt the
-  // captures array we're mid-mutating.
-  if (uploadBtn) {
-    uploadBtn.disabled = true;
-    uploadBtn.textContent = 'Uploading 0/' + targets.length + '…';
-  }
-  if (editBtn) editBtn.disabled = true;
-  if (clearBtn) clearBtn.disabled = true;
 
   try {
     for (let i = 0; i < targets.length; i++) {
@@ -957,8 +952,8 @@ async function uploadCaseToSphere() {
       } catch (e) {
         failed.push({ idx, status: 0, msg: e.message });
       }
-      if (uploadBtn) {
-        uploadBtn.textContent = 'Uploading ' + (i + 1) + '/' + targets.length + '…';
+      if (progressBtn) {
+        progressBtn.textContent = progressLabel + (i + 1) + '/' + targets.length + '…';
       }
     }
   } finally {
@@ -967,6 +962,81 @@ async function uploadCaseToSphere() {
   }
 
   showUploadSummary(caseName, ok, failed);
+}
+
+async function uploadCaseToSphere() {
+  if (!currentCaseKey || currentCaseKey === 'uncategorized') return;
+  const [caseName, caseMig] = currentCaseKey.split('|||');
+
+  const { sphereUrl, sphereToken, captures } = await chrome.storage.local.get(
+    ['sphereUrl', 'sphereToken', 'captures']
+  );
+
+  if (!sphereUrl || !sphereToken) {
+    alert('Set Sphere URL + token in ⚙ Sphere Settings first.');
+    return;
+  }
+
+  const all = captures || [];
+  const targets = [];
+  all.forEach((c, idx) => {
+    if (c.caseName === caseName && c.caseMIG === caseMig && !c.uploadedAt) {
+      targets.push({ c, idx });
+    }
+  });
+
+  if (targets.length === 0) {
+    alert('Nothing to upload — all captures for this case are already uploaded.');
+    return;
+  }
+
+  await sendCaseCapturesToSphere({
+    caseName, caseMig, sphereUrl, sphereToken, all, targets,
+    progressBtn: document.getElementById('uploadCaseBtn'),
+    progressLabel: 'Uploading ',
+  });
+}
+
+// Force-resend EVERY shot in the case, including ones already marked uploaded.
+// For rebuilding a Nexus case that was wiped/recreated server-side, where the
+// local uploadedAt flags would otherwise suppress a normal upload.
+async function resendCaseToSphere() {
+  if (!currentCaseKey || currentCaseKey === 'uncategorized') return;
+  const [caseName, caseMig] = currentCaseKey.split('|||');
+
+  const { sphereUrl, sphereToken, captures } = await chrome.storage.local.get(
+    ['sphereUrl', 'sphereToken', 'captures']
+  );
+
+  if (!sphereUrl || !sphereToken) {
+    alert('Set Sphere URL + token in ⚙ Sphere Settings first.');
+    return;
+  }
+
+  const all = captures || [];
+  const targets = [];
+  all.forEach((c, idx) => {
+    if (c.caseName === caseName && c.caseMIG === caseMig) {
+      targets.push({ c, idx });
+    }
+  });
+
+  if (targets.length === 0) {
+    alert('No captures in this case to resend.');
+    return;
+  }
+
+  if (!confirm(
+    'Resend ALL ' + targets.length + ' shot(s) for "' + caseName + '" (' + caseMig + ') to Sphere?\n\n' +
+    'This re-POSTs every shot, including ones already marked uploaded. ' +
+    'Use it only to rebuild a case that was wiped or recreated in Nexus.'
+  )) return;
+
+  await sendCaseCapturesToSphere({
+    caseName, caseMig, sphereUrl, sphereToken, all, targets,
+    progressBtn: document.getElementById('resendCaseBtn'),
+    progressLabel: 'Resending ',
+  });
 }
 
 // Setup event listeners
@@ -997,6 +1067,7 @@ function setupEventListeners() {
   // Sphere case-bar buttons
   document.getElementById('editCaseMigBtn')?.addEventListener('click', editCaseMIG);
   document.getElementById('uploadCaseBtn')?.addEventListener('click', uploadCaseToSphere);
+  document.getElementById('resendCaseBtn')?.addEventListener('click', resendCaseToSphere);
   document.getElementById('clearUploadedBtn')?.addEventListener('click', clearUploadedForCase);
   
   // Bulk actions
