@@ -597,7 +597,7 @@ function createCaptureCard(capture, displayIndex) {
   card.innerHTML = `
     <div class="capture-header">
       <div class="capture-header-left">
-        <input type="checkbox" class="capture-select-checkbox" data-index="${capture.originalIndex}" style="margin-right: 8px; cursor: pointer; width: 16px; height: 16px; accent-color: #256D96;">
+        <input type="checkbox" class="capture-select-checkbox" data-index="${capture.originalIndex}" style="margin-right: 8px; cursor: pointer; width: 16px; height: 16px; accent-color: #0088D9;">
         <button class="collapse-btn">▼</button>
         <span class="drag-handle">⋮⋮</span>
         <span class="platform-badge">${platform}</span>
@@ -709,7 +709,7 @@ function updateCaseBarButtons() {
   if (!currentCaseKey || currentCaseKey === 'uncategorized' || currentCaseKey === '') {
     editBtn.disabled = true;
     uploadBtn.disabled = true;
-    uploadBtn.textContent = '⬆ Upload to Sphere (0)';
+    uploadBtn.textContent = '⬆ Send to Nexus (0)';
     resendBtn.disabled = true;
     resendBtn.textContent = '🔄 Resend All (0)';
     clearBtn.disabled = true;
@@ -730,7 +730,7 @@ function updateCaseBarButtons() {
   editBtn.disabled = false;
 
   const total = uploaded + unuploaded;
-  uploadBtn.textContent = '⬆ Upload to Sphere (' + unuploaded + ')';
+  uploadBtn.textContent = '⬆ Send to Nexus (' + unuploaded + ')';
   uploadBtn.disabled = true;  // hold disabled until async config check resolves
   resendBtn.textContent = '🔄 Resend All (' + total + ')';
   resendBtn.disabled = true;  // hold disabled until async config check resolves
@@ -832,26 +832,26 @@ function showUploadSummary(caseName, okCount, failures) {
 
   const box = document.createElement('div');
   Object.assign(box.style, {
-    background: 'white', borderRadius: '8px', padding: '20px',
+    background: '#161a22', border: '1px solid #2a313d', borderRadius: '8px', padding: '20px',
     width: '480px', maxHeight: '70vh', overflowY: 'auto',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
     fontFamily: '-apple-system, sans-serif',
   });
 
   const title = document.createElement('div');
-  title.style.cssText = 'font-size:16px; font-weight:600; color:#256D96; margin-bottom:12px;';
+  title.style.cssText = 'font-size:16px; font-weight:600; color:#e6edf3; margin-bottom:12px;';
   title.textContent = 'Upload Complete: ' + caseName;
   box.appendChild(title);
 
   const summary = document.createElement('div');
-  summary.style.cssText = 'font-size:13px; margin-bottom:14px;';
-  summary.innerHTML = '<span style="color:#155724;">✓ ' + okCount + ' uploaded</span>'
-                    + (failures.length ? '<br><span style="color:#c0392b;">✗ ' + failures.length + ' failed</span>' : '');
+  summary.style.cssText = 'font-size:13px; margin-bottom:14px; color:#e6edf3;';
+  summary.innerHTML = '<span style="color:#2ea043;">✓ ' + okCount + ' uploaded</span>'
+                    + (failures.length ? '<br><span style="color:#f85149;">✗ ' + failures.length + ' failed</span>' : '');
   box.appendChild(summary);
 
   if (failures.length) {
     const list = document.createElement('ul');
-    list.style.cssText = 'font-size:11px; color:#c0392b; padding-left:18px; margin:0 0 14px;';
+    list.style.cssText = 'font-size:11px; color:#f85149; padding-left:18px; margin:0 0 14px;';
     failures.forEach(f => {
       const li = document.createElement('li');
       const statusLabel = f.status === 0 ? 'Network error' : ('HTTP ' + f.status);
@@ -866,8 +866,8 @@ function showUploadSummary(caseName, okCount, failures) {
   closeBtn.textContent = 'Close';
   Object.assign(closeBtn.style, {
     padding: '8px 18px',
-    background: 'linear-gradient(135deg, #256D96 0%, #1b5273 100%)',
-    color: 'white', border: 'none', borderRadius: '5px',
+    background: '#0088D9',
+    color: '#ffffff', border: 'none', borderRadius: '5px',
     fontSize: '13px', fontWeight: '600', cursor: 'pointer',
   });
   closeBtn.addEventListener('click', () => {
@@ -1297,13 +1297,13 @@ function openBulkMoveModal() {
         <div class="notes-modal-title">Move ${selectedCaptures.size} ${platform} Capture${selectedCaptures.size !== 1 ? 's' : ''}</div>
         <button class="notes-modal-close">×</button>
       </div>
-      <div style="margin-bottom: 16px; font-size: 14px; color: #666;">
+      <div style="margin-bottom: 16px; font-size: 14px; color: #8b949e;">
         Select destination account:
       </div>
       <div class="account-list">
         ${accountListHTML}
       </div>
-      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #e0e0e0;">
+      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #2a313d;">
         <button id="bulkMakeNewBtn" class="btn btn-primary" data-account="${nextAccountId}" style="width: 100%; padding: 12px;">
           ➕ Make New (${nextDisplayName})
         </button>
@@ -1640,14 +1640,14 @@ async function deleteCurrentCase() {
         <div class="notes-modal-title">⚠️ Delete Case</div>
         <button class="notes-modal-close">×</button>
       </div>
-      <div style="margin-bottom: 20px; color: #555; font-size: 14px; line-height: 1.6;">
+      <div style="margin-bottom: 20px; color: #e6edf3; font-size: 14px; line-height: 1.6;">
         <p style="margin-bottom: 12px;">
           Delete case <strong>${caseName} (${caseMIG})</strong>?
         </p>
         <p style="margin-bottom: 12px;">
           This will delete <strong>${caseCaptures.length} capture${caseCaptures.length !== 1 ? 's' : ''}</strong> from this case.
         </p>
-        <p style="color: #e74c3c; font-weight: 600;">
+        <p style="color: #f85149; font-weight: 600;">
           This action cannot be undone!
         </p>
       </div>
@@ -1737,11 +1737,11 @@ async function clearAll() {
           <div class="notes-modal-title">⚠️ Wipe Archive</div>
           <button class="notes-modal-close">×</button>
         </div>
-        <div style="margin-bottom: 20px; color: #555; font-size: 14px; line-height: 1.6;">
+        <div style="margin-bottom: 20px; color: #e6edf3; font-size: 14px; line-height: 1.6;">
           <p style="margin-bottom: 12px;">
             This will <strong>delete all ${allCaptures.length} captures</strong> and <strong>erase all Cases</strong>.
           </p>
-          <p style="color: #e74c3c; font-weight: 600;">
+          <p style="color: #f85149; font-weight: 600;">
             This action cannot be undone!
           </p>
         </div>
@@ -1982,7 +1982,7 @@ function openMoveAccountModal(index) {
     const isCurrent = account === currentAccount;
     accountListHTML += `
       <div class="account-option ${isCurrent ? 'current' : ''}" data-account="${account}">
-        ${displayName} ${isCurrent ? '<span style="color: #00B0F0; font-weight: bold;">(Current)</span>' : ''}
+        ${displayName} ${isCurrent ? '<span style="color: #78CDFF; font-weight: bold;">(Current)</span>' : ''}
       </div>
     `;
   });
@@ -1996,13 +1996,13 @@ function openMoveAccountModal(index) {
         <div class="notes-modal-title">Move to Account</div>
         <button class="notes-modal-close">×</button>
       </div>
-      <div style="margin-bottom: 16px; font-size: 14px; color: #666;">
+      <div style="margin-bottom: 16px; font-size: 14px; color: #8b949e;">
         Select an existing account or create a new one:
       </div>
       <div class="account-list">
         ${accountListHTML}
       </div>
-      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #e0e0e0;">
+      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #2a313d;">
         <button id="makeNewBtn" class="btn btn-primary" data-account="${nextAccountId}" style="width: 100%; padding: 12px;">
           ➕ Make New (${nextDisplayName})
         </button>

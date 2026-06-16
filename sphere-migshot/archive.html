@@ -13,8 +13,8 @@
 
     body {
       font-family: 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #1b5273 0%, #256D96 100%);
-      color: #1a1f2e;
+      background: #0f1115;
+      color: #e6edf3;
       padding: 20px;
       min-height: 100vh;
     }
@@ -22,20 +22,21 @@
     .container {
       max-width: 1400px;
       margin: 0 auto;
-      background: white;
+      background: #161a22;
+      border: 1px solid #2a313d;
       border-radius: 12px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
       overflow: hidden;
     }
 
     .header {
-      background: linear-gradient(135deg, #256D96 0%, #1b5273 100%);
-      color: white;
+      background: linear-gradient(135deg, #10222e 0%, #11151c 100%);
+      color: #e6edf3;
       padding: 20px 30px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 3px solid #00B0F0;
+      border-bottom: 1px solid #2a313d;
     }
 
     .header-left {
@@ -58,7 +59,7 @@
 
     .stats {
       font-size: 14px;
-      color: rgba(255,255,255,0.8);
+      color: #8b949e;
       margin-top: 4px;
     }
 
@@ -69,9 +70,9 @@
 
     /* Case Selection Bar */
     .case-bar {
-      background: #f8f9fa;
+      background: #161a22;
       padding: 20px 30px;
-      border-bottom: 2px solid #e2e5ea;
+      border-bottom: 1px solid #2a313d;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -87,18 +88,18 @@
 
     .case-label {
       font-weight: 600;
-      color: #256D96;
+      color: #8b949e;
       font-size: 14px;
     }
 
     .case-dropdown {
       padding: 10px 15px;
-      border: 2px solid #256D96;
+      border: 2px solid #2a313d;
       border-radius: 6px;
       font-size: 14px;
       font-weight: 500;
-      background: white;
-      color: #256D96;
+      background: #eef0f7;
+      color: #1a1f2e;
       cursor: pointer;
       min-width: 300px;
       outline: none;
@@ -106,20 +107,19 @@
     }
 
     .case-dropdown:hover {
-      border-color: #1b5273;
-      background: #f8f9fa;
+      border-color: #0088D9;
     }
 
     .case-dropdown:focus {
-      border-color: #00B0F0;
-      box-shadow: 0 0 0 3px rgba(0, 176, 240, 0.1);
+      border-color: #0088D9;
+      box-shadow: 0 0 0 3px rgba(0, 136, 217, 0.2);
     }
 
     /* Subject Tabs */
     .subject-tabs {
-      background: white;
+      background: #161a22;
       padding: 0 30px;
-      border-bottom: 2px solid #e2e5ea;
+      border-bottom: 1px solid #2a313d;
       display: flex;
       gap: 5px;
       overflow-x: auto;
@@ -130,7 +130,7 @@
       background: transparent;
       border: none;
       border-bottom: 3px solid transparent;
-      color: #666;
+      color: #8b949e;
       font-size: 14px;
       font-weight: 600;
       cursor: pointer;
@@ -139,21 +139,21 @@
     }
 
     .subject-tab:hover {
-      color: #256D96;
-      background: #f8f9fa;
+      color: #e6edf3;
+      background: #1d2330;
     }
 
     .subject-tab.active {
-      color: #256D96;
-      border-bottom-color: #00B0F0;
-      background: #f8f9fa;
+      color: #78CDFF;
+      border-bottom-color: #0088D9;
+      background: #1d2330;
     }
 
     .subject-badge {
       display: inline-block;
       padding: 2px 8px;
-      background: #00B0F0;
-      color: white;
+      background: #0088D9;
+      color: #ffffff;
       border-radius: 10px;
       font-size: 10px;
       font-weight: 600;
@@ -163,9 +163,9 @@
 
     /* Platform Tabs */
     .platform-tabs {
-      background: white;
+      background: #161a22;
       padding: 15px 30px;
-      border-bottom: 2px solid #e2e5ea;
+      border-bottom: 1px solid #2a313d;
       display: flex;
       gap: 10px;
       align-items: center;
@@ -174,10 +174,10 @@
 
     .platform-tab {
       padding: 8px 16px;
-      background: #f0f0f0;
+      background: #1d2330;
       border: 2px solid transparent;
       border-radius: 20px;
-      color: #555;
+      color: #8b949e;
       font-size: 13px;
       font-weight: 600;
       cursor: pointer;
@@ -186,14 +186,14 @@
     }
 
     .platform-tab:hover {
-      background: #e0e0e0;
-      border-color: #256D96;
+      background: #2a313d;
+      border-color: #0088D9;
     }
 
     .platform-tab.active {
-      background: #256D96;
-      color: white;
-      border-color: #256D96;
+      background: #0088D9;
+      color: #ffffff;
+      border-color: #0088D9;
     }
 
     .platform-count {
@@ -211,9 +211,9 @@
 
     /* Bulk Actions Bar */
     .bulk-actions-bar {
-      background: #f8f9fa;
+      background: #1d2330;
       padding: 12px 30px;
-      border-bottom: 2px solid #e2e5ea;
+      border-bottom: 1px solid #2a313d;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -229,7 +229,7 @@
       align-items: center;
       font-size: 14px;
       font-weight: 600;
-      color: #256D96;
+      color: #e6edf3;
     }
 
     .bulk-actions-right {
@@ -238,7 +238,7 @@
     }
 
     .capture-card.selected {
-      outline: 3px solid #256D96;
+      outline: 3px solid #0088D9;
       outline-offset: -3px;
     }
 
@@ -266,53 +266,57 @@
     }
 
     .btn-primary {
-      background: linear-gradient(135deg, #256D96 0%, #1b5273 100%);
-      color: white;
+      background: #0088D9;
+      color: #ffffff;
     }
 
     .btn-primary:hover {
+      background: #78CDFF;
+      color: #11151c;
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(37, 109, 150, 0.3);
+      box-shadow: 0 4px 12px rgba(0, 136, 217, 0.35);
     }
 
     .btn-danger {
-      background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-      color: white;
+      background: #f85149;
+      color: #ffffff;
     }
 
     .btn-danger:hover {
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+      box-shadow: 0 4px 12px rgba(248, 81, 73, 0.35);
     }
 
     .btn-warning {
-      background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
-      color: white;
+      background: #d29922;
+      color: #11151c;
     }
 
     .btn-warning:hover {
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(243, 156, 18, 0.3);
+      box-shadow: 0 4px 12px rgba(210, 153, 34, 0.35);
     }
 
     .btn-success {
-      background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
-      color: white;
+      background: #2ea043;
+      color: #ffffff;
     }
 
     .btn-success:hover {
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(39, 174, 96, 0.3);
+      box-shadow: 0 4px 12px rgba(46, 160, 67, 0.35);
     }
 
     .btn-gold {
-      background: linear-gradient(135deg, #00B0F0 0%, #0098D4 100%);
-      color: white;
+      background: #0088D9;
+      color: #ffffff;
     }
 
     .btn-gold:hover {
+      background: #78CDFF;
+      color: #11151c;
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(0, 176, 240, 0.3);
+      box-shadow: 0 4px 12px rgba(0, 136, 217, 0.35);
     }
 
     /* Capture Cards (v6.7 style) */
@@ -322,8 +326,8 @@
     }
 
     .capture-card {
-      background: white;
-      border: 1px solid #e2e5ea;
+      background: #161a22;
+      border: 1px solid #2a313d;
       border-radius: 6px;
       margin-bottom: 12px;
       overflow: hidden;
@@ -331,8 +335,8 @@
     }
 
     .capture-card:hover {
-      border-color: #256D96;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      border-color: #0088D9;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
     }
 
     .capture-card.collapsed .capture-content {
@@ -340,13 +344,13 @@
     }
 
     .capture-header {
-      background: #f8f9fa;
+      background: #1d2330;
       padding: 10px 15px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       cursor: pointer;
-      border-bottom: 1px solid #e2e5ea;
+      border-bottom: 1px solid #2a313d;
     }
 
     .capture-header-left {
@@ -361,7 +365,7 @@
       font-size: 16px;
       cursor: pointer;
       transition: transform 0.2s;
-      color: #666;
+      color: #8b949e;
     }
 
     .capture-card.collapsed .collapse-btn {
@@ -376,8 +380,8 @@
 
     .platform-badge {
       padding: 4px 10px;
-      background: #256D96;
-      color: white;
+      background: #0088D9;
+      color: #ffffff;
       border-radius: 12px;
       font-size: 11px;
       font-weight: 600;
@@ -385,13 +389,13 @@
 
     .capture-number {
       font-size: 13px;
-      color: #666;
+      color: #8b949e;
       font-weight: 600;
     }
 
     .capture-time {
       font-size: 12px;
-      color: #999;
+      color: #8b949e;
     }
 
     .capture-content {
@@ -408,9 +412,9 @@
       max-height: 400px;
       object-fit: contain;
       border-radius: 4px;
-      border: 1px solid #e2e5ea;
+      border: 1px solid #2a313d;
       display: block;
-      background: #f8f9fa;
+      background: #1d2330;
     }
 
     .capture-left {
@@ -448,7 +452,7 @@
     .detail-label {
       font-size: 11px;
       font-weight: 600;
-      color: #256D96;
+      color: #8b949e;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
@@ -461,20 +465,22 @@
     .date-input {
       flex: 1;
       padding: 6px 10px;
-      border: 1px solid #e2e5ea;
+      border: 1px solid #2a313d;
       border-radius: 4px;
       font-size: 12px;
+      background: #eef0f7;
+      color: #1a1f2e;
       outline: none;
     }
 
     .date-input:focus {
-      border-color: #256D96;
+      border-color: #0088D9;
     }
 
     .btn-save-date {
       padding: 6px 12px;
-      background: #00B0F0;
-      color: white;
+      background: #0088D9;
+      color: #ffffff;
       border: none;
       border-radius: 4px;
       font-size: 11px;
@@ -484,7 +490,8 @@
     }
 
     .btn-save-date:hover {
-      background: #0098D4;
+      background: #78CDFF;
+      color: #11151c;
     }
 
     .date-badge-preview {
@@ -495,13 +502,13 @@
 
     .detail-value {
       font-size: 12px;
-      color: #555;
+      color: #e6edf3;
       word-break: break-all;
       line-height: 1.4;
     }
 
     .detail-value a {
-      color: #256D96;
+      color: #0088D9;
       text-decoration: none;
     }
 
@@ -535,8 +542,8 @@
     }
 
     .btn-notes {
-      background: #2196F3;
-      color: white;
+      background: #0088D9;
+      color: #ffffff;
       border: none;
       border-radius: 4px;
       cursor: pointer;
@@ -544,15 +551,17 @@
     }
 
     .btn-notes:hover {
-      background: #1976D2;
+      background: #78CDFF;
+      color: #11151c;
     }
 
     .btn-notes.has-notes {
-      background: #256D96;
+      background: #0088D9;
     }
 
     .btn-notes.has-notes:hover {
-      background: #1b5273;
+      background: #78CDFF;
+      color: #11151c;
     }
 
     /* Notes Modal */
@@ -570,14 +579,15 @@
     }
 
     .notes-modal-content {
-      background: white;
+      background: #161a22;
+      border: 1px solid #2a313d;
       border-radius: 8px;
       padding: 24px;
       max-width: 600px;
       width: 90%;
       max-height: 80vh;
       overflow-y: auto;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6);
     }
 
     .notes-modal-header {
@@ -590,14 +600,14 @@
     .notes-modal-title {
       font-size: 18px;
       font-weight: 700;
-      color: #256D96;
+      color: #e6edf3;
     }
 
     .notes-modal-close {
       background: none;
       border: none;
       font-size: 24px;
-      color: #999;
+      color: #8b949e;
       cursor: pointer;
       padding: 0;
       width: 30px;
@@ -608,15 +618,17 @@
     }
 
     .notes-modal-close:hover {
-      color: #333;
+      color: #e6edf3;
     }
 
     .notes-textarea {
       width: 100%;
       min-height: 150px;
       padding: 12px;
-      border: 2px solid #e2e5ea;
+      border: 2px solid #2a313d;
       border-radius: 6px;
+      background: #eef0f7;
+      color: #1a1f2e;
       font-family: 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
       font-size: 14px;
       resize: vertical;
@@ -625,7 +637,7 @@
     }
 
     .notes-textarea:focus {
-      border-color: #256D96;
+      border-color: #0088D9;
     }
 
     .notes-modal-actions {
@@ -635,16 +647,16 @@
     }
 
     .copy-option {
-      background: #f8f9fa;
+      background: #1d2330;
       padding: 12px;
       border-radius: 6px;
-      border: 1px solid #e2e5ea;
+      border: 1px solid #2a313d;
       margin-bottom: 16px;
       display: flex;
       align-items: center;
       gap: 8px;
       font-size: 13px;
-      color: #555;
+      color: #e6edf3;
     }
 
     .copy-option input[type="checkbox"] {
@@ -668,37 +680,37 @@
 
     .account-option {
       padding: 16px 20px;
-      background: #f8f9fa;
-      border: 2px solid #e2e5ea;
+      background: #1d2330;
+      border: 2px solid #2a313d;
       border-radius: 6px;
       cursor: pointer;
       transition: all 0.2s;
       font-size: 14px;
-      color: #1a1f2e;
+      color: #e6edf3;
       font-weight: 500;
     }
 
     .account-option:hover {
-      background: #E0F2FC;
-      border-color: #256D96;
+      background: #2a313d;
+      border-color: #0088D9;
       transform: translateX(4px);
     }
 
     .account-option.current {
-      background: #d4edda;
-      border-color: #00B0F0;
+      background: #1d2330;
+      border-color: #0088D9;
     }
 
     .account-option.new-account {
-      background: #e3f2fd;
-      border-color: #2196F3;
-      color: #1976D2;
+      background: #1d2330;
+      border-color: #0088D9;
+      color: #78CDFF;
       font-weight: 600;
     }
 
     .account-option.new-account:hover {
-      background: #bbdefb;
-      border-color: #1976D2;
+      background: #2a313d;
+      border-color: #78CDFF;
     }
 
     .btn-small {
@@ -710,7 +722,7 @@
     .empty-state {
       text-align: center;
       padding: 80px 20px;
-      color: #999;
+      color: #8b949e;
     }
 
     .empty-icon {
@@ -721,13 +733,13 @@
     .empty-text {
       font-size: 18px;
       font-weight: 600;
-      color: #666;
+      color: #e6edf3;
       margin-bottom: 10px;
     }
 
     .empty-subtext {
       font-size: 14px;
-      color: #999;
+      color: #8b949e;
     }
 
     /* Toast Notification */
@@ -735,11 +747,11 @@
       position: fixed;
       bottom: 30px;
       right: 30px;
-      background: #27ae60;
-      color: white;
+      background: #2ea043;
+      color: #ffffff;
       padding: 15px 25px;
       border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
       font-size: 14px;
       font-weight: 600;
       z-index: 10000;
@@ -754,7 +766,7 @@
     }
 
     .toast.error {
-      background: #e74c3c;
+      background: #f85149;
     }
 
     /* Hidden */
@@ -769,16 +781,16 @@
     }
 
     ::-webkit-scrollbar-track {
-      background: #f1f1f1;
+      background: #161a22;
     }
 
     ::-webkit-scrollbar-thumb {
-      background: #256D96;
+      background: #2a313d;
       border-radius: 4px;
     }
 
     ::-webkit-scrollbar-thumb:hover {
-      background: #1b5273;
+      background: #3a4250;
     }
 
     /* Sphere upload badge */
@@ -786,9 +798,9 @@
       display: inline-block;
       padding: 3px 8px;
       margin-left: 8px;
-      background: #d4edda;
-      color: #155724;
-      border: 1px solid #28a745;
+      background: rgba(46, 160, 67, 0.15);
+      color: #2ea043;
+      border: 1px solid #2ea043;
       border-radius: 10px;
       font-size: 10px;
       font-weight: 600;
@@ -839,7 +851,7 @@
         <button type="button" id="editCaseMigBtn" class="case-bar-icon-btn" title="Edit TrackOps Case # for this case" disabled>✏️</button>
       </div>
       <div class="case-bar-actions">
-        <button type="button" id="uploadCaseBtn" class="btn btn-primary" disabled>⬆ Upload to Sphere (0)</button>
+        <button type="button" id="uploadCaseBtn" class="btn btn-primary" disabled>⬆ Send to Nexus (0)</button>
         <button type="button" id="resendCaseBtn" class="btn btn-secondary" title="Re-send every shot in this case to Sphere — use only to rebuild a case that was wiped/recreated in Nexus." disabled>🔄 Resend All (0)</button>
         <button type="button" id="clearUploadedBtn" class="btn btn-secondary" disabled>🗑 Clear Uploaded (0)</button>
       </div>
@@ -858,7 +870,7 @@
     <!-- Bulk Actions Bar -->
     <div class="bulk-actions-bar hidden" id="bulkActionsBar">
       <div class="bulk-actions-left">
-        <input type="checkbox" id="selectAllCheckbox" style="margin-right: 8px; cursor: pointer; width: 16px; height: 16px; accent-color: #256D96;">
+        <input type="checkbox" id="selectAllCheckbox" style="margin-right: 8px; cursor: pointer; width: 16px; height: 16px; accent-color: #0088D9;">
         <span id="selectedCount">0 selected</span>
       </div>
       <div class="bulk-actions-right">
