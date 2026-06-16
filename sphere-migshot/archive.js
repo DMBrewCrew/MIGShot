@@ -741,7 +741,7 @@ function updateCaseBarButtons() {
       uploadBtn.title = 'Nothing new to upload';
     } else if (!configured) {
       uploadBtn.disabled = true;
-      uploadBtn.title = 'Set Sphere URL + token in ⚙ Sphere Settings first.';
+      uploadBtn.title = 'Set Sphere URL + token in ⚙ Nexus Settings first.';
     } else {
       uploadBtn.disabled = false;
       uploadBtn.title = '';
@@ -754,7 +754,7 @@ function updateCaseBarButtons() {
       resendBtn.title = 'No shots in this case to resend';
     } else if (!configured) {
       resendBtn.disabled = true;
-      resendBtn.title = 'Set Sphere URL + token in ⚙ Sphere Settings first.';
+      resendBtn.title = 'Set Sphere URL + token in ⚙ Nexus Settings first.';
     } else {
       resendBtn.disabled = false;
       resendBtn.title = 'Re-send every shot in this case to Sphere — use only to rebuild a case that was wiped/recreated in Nexus.';
@@ -973,7 +973,7 @@ async function uploadCaseToSphere() {
   );
 
   if (!sphereUrl || !sphereToken) {
-    alert('Set Sphere URL + token in ⚙ Sphere Settings first.');
+    alert('Set Sphere URL + token in ⚙ Nexus Settings first.');
     return;
   }
 
@@ -1009,7 +1009,7 @@ async function resendCaseToSphere() {
   );
 
   if (!sphereUrl || !sphereToken) {
-    alert('Set Sphere URL + token in ⚙ Sphere Settings first.');
+    alert('Set Sphere URL + token in ⚙ Nexus Settings first.');
     return;
   }
 
