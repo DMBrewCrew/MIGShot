@@ -1,0 +1,64 @@
+{
+  "manifest_version": 3,
+  "name": "Sphere MIGshot",
+  "version": "8.0.0",
+  "description": "Sphere Investigations — professional content capture for investigative reports (freeze-first capture). © 2025 Anthony Klarich / Marshall Investigative Group",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs",
+    "clipboardWrite",
+    "storage",
+    "unlimitedStorage"
+  ],
+  "optional_host_permissions": ["<all_urls>"],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "capture-post": {
+      "suggested_key": {
+        "default": "Alt+S",
+        "mac": "Alt+S"
+      },
+      "description": "Capture area with selection tool"
+    },
+    "rolling-capture": {
+      "suggested_key": {
+        "default": "Shift+Alt+S",
+        "mac": "Shift+Alt+S"
+      },
+      "description": "Capture entire page automatically"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["editor.html", "editor.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

@@ -1,0 +1,699 @@
+// Content script for Facebook and Instagram - Manual Area Selection
+console.log('MIGShot v6.0 extension loaded');
+
+// Detect current platform from hostname
+function getPlatform() {
+  const hostname = window.location.hostname;
+  
+  // Remove www. prefix
+  const cleanHostname = hostname.replace(/^www\./, '');
+  
+  // Extract main domain name (remove TLD)
+  // Example: facebook.com -> Facebook, tiktok.com -> TikTok
+  const domainParts = cleanHostname.split('.');
+  
+  // Get the main part (second-to-last if multiple parts, otherwise first)
+  let mainDomain = domainParts.length > 1 ? domainParts[domainParts.length - 2] : domainParts[0];
+  
+  // Capitalize first letter
+  const platformName = mainDomain.charAt(0).toUpperCase() + mainDomain.slice(1);
+  
+  return platformName;
+}
+
+// Listen for messages from background script
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'startSelection') {
+    startAreaSelection();
+    sendResponse({ status: 'selection started' });
+  } else if (request.action === 'startRollingCapture') {
+    startRollingCapture();
+    sendResponse({ status: 'rolling capture started' });
+  } else if (request.action === 'scrollToPosition') {
+    window.scrollTo(0, request.scrollY);
+    sendResponse({ status: 'scrolled' });
+  } else if (request.action === 'scrollAndWait') {
+    // Smart scroll waiting - wait for scroll to complete and content to render
+    const targetY = request.scrollY;
+    const beforeScrollY = window.scrollY;
+
+    window.scrollTo(0, targetY);
+    waitForScrollComplete(targetY).then(() => {
+      const actualScrollY = window.scrollY;
+      const actualDelta = actualScrollY - beforeScrollY;
+
+      sendResponse({
+        status: 'scroll complete',
+        actualScrollY: actualScrollY,
+        targetScrollY: targetY,
+        scrollDelta: actualDelta,
+        scrolledToTarget: Math.abs(actualScrollY - targetY) < 5
+      });
+    });
+    return true; // Keep message channel open for async response
+  } else if (request.action === 'hideFixedElements') {
+    hideFixedElements();
+    sendResponse({ success: true });
+  } else if (request.action === 'restoreFixedElements') {
+    restoreFixedElements();
+    sendResponse({ success: true });
+  } else if (request.action === 'ping') {
+    sendResponse({ status: 'ready' });
+  } else if (request.action === 'hideUserData') {
+    hideUserData();
+    sendResponse({ success: true });
+  } else if (request.action === 'restoreUserData') {
+    restoreUserData();
+    sendResponse({ success: true });
+  } else if (request.action === 'updateProgress') {
+    updateProgress(request.currentSegment, request.totalSegments);
+    sendResponse({ success: true });
+  }
+  return true;
+});
+
+// Area selection system
+let selectionOverlay = null;
+let selectionBox = null;
+let startX = 0;
+let startY = 0;
+let isSelecting = false;
+let frozenImage = null;  // the viewport screenshot captured BEFORE selection
+
+async function startAreaSelection() {
+  // FREEZE-FIRST: capture the visible viewport NOW (with identifying data hidden
+  // by the background), then let the user draw the box on that still image. The
+  // crop comes from the frozen image, so scrolling / lazy-loading / reflow during
+  // the drag can't change what we capture — eliminating the "wrong crop" race.
+  let resp;
+  try {
+    resp = await chrome.runtime.sendMessage({ action: 'captureViewport' });
+  } catch (e) {
+    resp = { error: (e && e.message) || 'capture failed' };
+  }
+  if (!resp || resp.error || !resp.image) {
+    alert('Sphere MIGshot could not take the screenshot'
+      + (resp && resp.error ? ': ' + resp.error : '') + '. Please try again.');
+    return;
+  }
+  frozenImage = resp.image;
+
+  // Overlay shows the FROZEN screenshot, full viewport, 1:1 with the screen.
+  selectionOverlay = document.createElement('div');
+  selectionOverlay.id = 'migshot-selection-overlay';
+  selectionOverlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    z-index: 2147483646;
+    cursor: crosshair;
+  `;
+  selectionOverlay.style.backgroundImage = 'url("' + frozenImage + '")';
+
+  // Selection box: cyan border, dims everything OUTSIDE it (snip-tool look).
+  selectionBox = document.createElement('div');
+  selectionBox.style.cssText = `
+    position: fixed;
+    border: 2px solid #00B0F0;
+    box-shadow: 0 0 0 100vmax rgba(15, 23, 42, 0.45);
+    display: none;
+    z-index: 2147483647;
+    pointer-events: none;
+  `;
+
+  // Instruction banner (Sphere palette).
+  const instructionText = document.createElement('div');
+  instructionText.style.cssText = `
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, #256D96 0%, #1b5273 100%);
+    color: #fff;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-family: 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .2px;
+    z-index: 2147483647;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    border: 2px solid #00B0F0;
+    white-space: nowrap;
+  `;
+  instructionText.textContent = 'Sphere MIGshot — click and drag to select • ESC to cancel';
+
+  document.body.appendChild(selectionOverlay);
+  document.body.appendChild(selectionBox);
+  document.body.appendChild(instructionText);
+
+  // Event listeners
+  selectionOverlay.addEventListener('mousedown', handleMouseDown);
+  selectionOverlay.addEventListener('mousemove', handleMouseMove);
+  selectionOverlay.addEventListener('mouseup', handleMouseUp);
+  document.addEventListener('keydown', handleKeyDown);
+
+  // Store instruction text for cleanup
+  selectionOverlay._instructionText = instructionText;
+}
+
+function handleMouseDown(e) {
+  isSelecting = true;
+  startX = e.clientX;
+  startY = e.clientY;
+  
+  selectionBox.style.left = startX + 'px';
+  selectionBox.style.top = startY + 'px';
+  selectionBox.style.width = '0px';
+  selectionBox.style.height = '0px';
+  selectionBox.style.display = 'block';
+}
+
+function handleMouseMove(e) {
+  if (!isSelecting) return;
+  
+  const currentX = e.clientX;
+  const currentY = e.clientY;
+  
+  const width = Math.abs(currentX - startX);
+  const height = Math.abs(currentY - startY);
+  const left = Math.min(startX, currentX);
+  const top = Math.min(startY, currentY);
+  
+  selectionBox.style.left = left + 'px';
+  selectionBox.style.top = top + 'px';
+  selectionBox.style.width = width + 'px';
+  selectionBox.style.height = height + 'px';
+}
+
+function handleMouseUp(e) {
+  if (!isSelecting) return;
+  
+  isSelecting = false;
+  
+  const currentX = e.clientX;
+  const currentY = e.clientY;
+  
+  const width = Math.abs(currentX - startX);
+  const height = Math.abs(currentY - startY);
+  const left = Math.min(startX, currentX);
+  const top = Math.min(startY, currentY);
+  
+  // Minimum selection size (50x50)
+  if (width < 50 || height < 50) {
+    cleanupSelection();
+    alert('Selection too small. Please select a larger area.');
+    return;
+  }
+  
+  // Send bounds to background
+  const bounds = {
+    x: left,
+    y: top,
+    width: width,
+    height: height,
+    windowWidth: window.innerWidth,
+    windowHeight: window.innerHeight,
+    devicePixelRatio: window.devicePixelRatio || 1
+  };
+  
+  const platform = getPlatform();
+  
+  // Grab the frozen image for this selection, then clean up the UI.
+  const image = frozenImage;
+  cleanupSelection();
+
+  // Send the bounds + the FROZEN image to crop from (not a fresh screenshot).
+  chrome.runtime.sendMessage({
+    action: 'captureSelection',
+    bounds: bounds,
+    platform: platform,
+    url: window.location.href,
+    image: image
+  });
+}
+
+function handleKeyDown(e) {
+  if (e.key === 'Escape') {
+    cleanupSelection();
+  }
+}
+
+function cleanupSelection() {
+  isSelecting = false;
+  frozenImage = null;
+
+  if (selectionOverlay) {
+    selectionOverlay.removeEventListener('mousedown', handleMouseDown);
+    selectionOverlay.removeEventListener('mousemove', handleMouseMove);
+    selectionOverlay.removeEventListener('mouseup', handleMouseUp);
+    
+    if (selectionOverlay._instructionText) {
+      selectionOverlay._instructionText.remove();
+    }
+    
+    selectionOverlay.remove();
+    selectionOverlay = null;
+  }
+  
+  if (selectionBox) {
+    selectionBox.remove();
+    selectionBox = null;
+  }
+  
+  document.removeEventListener('keydown', handleKeyDown);
+}
+
+// Smart scroll waiting - wait for scroll to stabilize and content to render
+function waitForScrollComplete(targetY) {
+  return new Promise((resolve) => {
+    let lastY = window.scrollY;
+    let stableCount = 0;
+    const maxWaitTime = 2000; // Maximum 2 seconds wait
+    const startTime = Date.now();
+
+    const checkInterval = setInterval(() => {
+      const currentY = window.scrollY;
+      const elapsed = Date.now() - startTime;
+
+      // Check if we've waited too long
+      if (elapsed > maxWaitTime) {
+        clearInterval(checkInterval);
+        // Give a final small buffer for rendering
+        setTimeout(resolve, 50);
+        return;
+      }
+
+      // Check if scroll position is stable
+      if (Math.abs(currentY - lastY) < 1) {
+        stableCount++;
+        // If stable for 3 checks (~30ms), consider it complete
+        if (stableCount >= 3) {
+          clearInterval(checkInterval);
+          // Extra buffer for content rendering
+          setTimeout(resolve, 50);
+          return;
+        }
+      } else {
+        stableCount = 0;
+      }
+
+      lastY = currentY;
+    }, 10); // Check every 10ms
+  });
+}
+
+// Hide user-identifying elements before screenshot
+function hideUserData() {
+  console.log('MIGShot: Hiding user data');
+  
+  // Create style element to hide user data
+  const style = document.createElement('style');
+  style.id = 'migshot-hide-user-data';
+  style.textContent = `
+    /* Hide the profile picture dropdown at the top of comment section */
+    div[aria-label="Available Voices"],
+    div[aria-label*="Available Voices"] {
+      display: none !important;
+    }
+    
+    /* Hide only YOUR comment composer form (not other people's comments) */
+    form[role="presentation"] {
+      display: none !important;
+    }
+    
+    /* Hide the comment input wrapper */
+    div.x1r8uery.x1iyjqo2.x6ikm8r.x10wlt62.xyri2b {
+      display: none !important;
+    }
+    
+    /* Hide any SVG image with your profile picture in comment area */
+    svg[aria-hidden="true"]:has(image[xlink\\:href*="fbcdn.net"]) {
+      display: none !important;
+    }
+    
+    /* Hide user profile picture in top right corner - Facebook */
+    div[role="banner"] img[referrerpolicy="origin-when-cross-origin"],
+    div[role="banner"] svg[aria-label*="Your profile"],
+    div[aria-label*="Account Controls and Settings"] {
+      display: none !important;
+    }
+    
+    /* Hide the entire account menu area in top right */
+    div[role="navigation"] > div > div:last-child > div:last-child {
+      display: none !important;
+    }
+  `;
+  
+  document.head.appendChild(style);
+  console.log('MIGShot: User data hidden');
+}
+
+// Restore user-identifying elements after screenshot
+function restoreUserData() {
+  console.log('MIGShot: Restoring user data');
+  const style = document.getElementById('migshot-hide-user-data');
+  if (style) {
+    style.remove();
+    console.log('MIGShot: User data restored');
+  }
+}
+
+// Hide fixed/sticky elements (nav bars, headers, etc.) before rolling capture
+function hideFixedElements() {
+  console.log('MIGShot: Hiding fixed elements');
+  
+  // Create style element to hide fixed/sticky elements
+  const style = document.createElement('style');
+  style.id = 'migshot-hide-fixed-elements';
+  style.textContent = `
+    /* Hide all fixed and sticky positioned elements */
+    *[style*="position: fixed"],
+    *[style*="position:fixed"] {
+      display: none !important;
+    }
+    
+    /* Common fixed element selectors */
+    header[style*="position"],
+    nav[style*="position"],
+    .fixed,
+    .sticky {
+      display: none !important;
+    }
+  `;
+  
+  document.head.appendChild(style);
+  
+  // Also manually hide elements with computed position fixed/sticky
+  const allElements = document.querySelectorAll('*');
+  allElements.forEach(el => {
+    const style = window.getComputedStyle(el);
+    if (style.position === 'fixed' || style.position === 'sticky') {
+      el.setAttribute('data-migshot-was-fixed', style.position);
+      el.style.setProperty('display', 'none', 'important');
+    }
+  });
+  
+  console.log('MIGShot: Fixed elements hidden');
+}
+
+// Restore fixed/sticky elements after rolling capture
+function restoreFixedElements() {
+  console.log('MIGShot: Restoring fixed elements');
+  
+  const style = document.getElementById('migshot-hide-fixed-elements');
+  if (style) {
+    style.remove();
+  }
+  
+  // Restore manually hidden elements
+  const hiddenElements = document.querySelectorAll('[data-migshot-was-fixed]');
+  hiddenElements.forEach(el => {
+    el.style.removeProperty('display');
+    el.removeAttribute('data-migshot-was-fixed');
+  });
+  
+  console.log('MIGShot: Fixed elements restored');
+}
+
+// Rolling capture system - Automatic full-page capture
+let rollingOverlay = null;
+let rollingInstructionText = null;
+let rollingProgressBar = null;
+
+function startRollingCapture() {
+  console.log('Starting automatic full-page rolling capture');
+  
+  // Show status overlay with pulsing animation
+  rollingOverlay = document.createElement('div');
+  rollingOverlay.id = 'migshot-rolling-overlay';
+  rollingOverlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(37, 109, 150, 0.18);
+    z-index: 999999;
+    pointer-events: none;
+    animation: migshot-pulse 1.5s ease-in-out infinite;
+  `;
+  
+  // Add keyframe animation for pulsing effect
+  if (!document.getElementById('migshot-rolling-styles')) {
+    const style = document.createElement('style');
+    style.id = 'migshot-rolling-styles';
+    style.textContent = `
+      @keyframes migshot-pulse {
+        0%, 100% { background: rgba(37, 109, 150, 0.14); }
+        50% { background: rgba(37, 109, 150, 0.30); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // Create instruction text
+  rollingInstructionText = document.createElement('div');
+  rollingInstructionText.style.cssText = `
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, #256D96 0%, #1b5273 100%);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 6px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 1000001;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    backdrop-filter: blur(10px);
+    border: 2px solid #00B0F0;
+    max-width: 600px;
+    text-align: center;
+  `;
+  rollingInstructionText.innerHTML = '🔄 <strong>Rolling Capture:</strong> Capturing full page...';
+
+  document.body.appendChild(rollingOverlay);
+  document.body.appendChild(rollingInstructionText);
+
+  // ESC key to cancel
+  document.addEventListener('keydown', handleRollingKeyDown);
+
+  // Start capture automatically after brief delay
+  setTimeout(() => {
+    startAutomaticCapture();
+  }, 500);
+}
+
+async function startAutomaticCapture() {
+  // Use full viewport width
+  const left = 0;
+  const width = window.innerWidth;
+  const top = 0;
+
+  // Calculate total scrollable height
+  const scrollableElement = findScrollableParent(document.body);
+  
+  let totalScrollHeight;
+  let scrollElement;
+
+  if (scrollableElement && scrollableElement !== document.documentElement && scrollableElement !== document.body) {
+    // Found a scrollable container
+    scrollElement = scrollableElement;
+    totalScrollHeight = scrollElement.scrollHeight;
+    console.log('Rolling capture: Using container scroll, height:', totalScrollHeight);
+  } else {
+    // Use page scroll
+    scrollElement = null;
+    totalScrollHeight = Math.max(
+      document.documentElement.scrollHeight,
+      document.body.scrollHeight
+    );
+    console.log('Rolling capture: Using page scroll, height:', totalScrollHeight);
+  }
+
+  // Calculate how many segments we need
+  const viewportHeight = window.innerHeight;
+  const overlapAmount = 100; // pixels of overlap between segments
+  const segmentStep = viewportHeight - overlapAmount;
+
+  // Calculate the starting scroll position
+  const initialScrollY = scrollElement ? scrollElement.scrollTop : window.scrollY;
+
+  // Calculate segments - create more than needed, background.js will stop when it hits bottom
+  const segments = [];
+  let currentScrollY = 0;
+  let segmentIndex = 0;
+  
+  // Generate segments at regular intervals
+  // We might create more than needed, but background.js will detect the actual bottom
+  const maxSegments = Math.ceil(totalScrollHeight / segmentStep) + 2; // +2 for safety margin
+  
+  while (segmentIndex < maxSegments) {
+    segments.push({
+      scrollY: currentScrollY,
+      bounds: {
+        x: left,
+        y: 0,
+        width: width,
+        height: viewportHeight,
+        windowWidth: window.innerWidth,
+        windowHeight: window.innerHeight,
+        devicePixelRatio: window.devicePixelRatio || 1
+      },
+      overlap: segmentIndex === 0 ? 0 : overlapAmount,
+      isLast: false, // Background.js will detect the real last segment
+      segmentIndex: segmentIndex
+    });
+    
+    currentScrollY += segmentStep;
+    segmentIndex++;
+    
+    // Safety check - don't generate crazy number of segments
+    if (currentScrollY > totalScrollHeight + (viewportHeight * 2)) {
+      break;
+    }
+  }
+
+  console.log('Rolling capture: Generated', segments.length, 'segments (may capture fewer)');
+  console.log('Rolling capture: Total scrollable height:', totalScrollHeight);
+
+  // Show progress indicator
+  showProgressIndicator(segments.length);
+
+  const platform = getPlatform();
+
+  // Update instruction text
+  rollingInstructionText.innerHTML = '🔄 <strong>Capturing...</strong> Auto-scrolling and capturing segments';
+
+  // Send rolling capture data to background
+  chrome.runtime.sendMessage({
+    action: 'captureRollingSelection',
+    segments: segments,
+    totalHeight: totalScrollHeight,
+    overlapAmount: overlapAmount,
+    platform: platform,
+    url: window.location.href,
+    useElementScroll: scrollElement !== null,
+    scrollElementSelector: scrollElement ? getElementSelector(scrollElement) : null
+  }, (response) => {
+    // Capture complete, cleanup
+    cleanupRollingCapture();
+  });
+}
+
+// Find the scrollable parent of an element
+function findScrollableParent(element) {
+  if (!element || element === document.documentElement) {
+    return document.documentElement;
+  }
+
+  const style = window.getComputedStyle(element);
+  const isScrollable = (style.overflow === 'auto' || style.overflow === 'scroll' ||
+                       style.overflowY === 'auto' || style.overflowY === 'scroll');
+
+  if (isScrollable && element.scrollHeight > element.clientHeight) {
+    return element;
+  }
+
+  return findScrollableParent(element.parentElement);
+}
+
+// Generate a selector for an element
+function getElementSelector(element) {
+  if (element.id) {
+    return '#' + element.id;
+  }
+
+  if (element.className && typeof element.className === 'string') {
+    const classes = element.className.trim().split(/\s+/).filter(c => c);
+    if (classes.length > 0) {
+      return element.tagName.toLowerCase() + '.' + classes.join('.');
+    }
+  }
+
+  return element.tagName.toLowerCase();
+}
+
+// Show progress indicator
+function showProgressIndicator(totalSegments) {
+  if (rollingProgressBar) {
+    rollingProgressBar.remove();
+  }
+
+  rollingProgressBar = document.createElement('div');
+  rollingProgressBar.style.cssText = `
+    position: fixed;
+    top: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 500px;
+    background: rgba(43, 95, 111, 0.98);
+    border-radius: 12px;
+    padding: 24px;
+    z-index: 1000002;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    border: 3px solid #256D96;
+  `;
+
+  rollingProgressBar.innerHTML = `
+    <div style="color: white; font-size: 16px; font-weight: 600; margin-bottom: 12px; text-align: center;">
+      📸 Capturing segment <span id="migshot-current-segment">0</span> of ${totalSegments}
+    </div>
+    <div style="width: 100%; height: 12px; background: rgba(255,255,255,0.2); border-radius: 6px; overflow: hidden; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);">
+      <div id="migshot-progress-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #256D96 0%, #00B0F0 100%); transition: width 0.3s ease; box-shadow: 0 0 10px rgba(0, 176, 240, 0.5);"></div>
+    </div>
+  `;
+
+  document.body.appendChild(rollingProgressBar);
+}
+
+// Update progress indicator (called from background script via message)
+function updateProgress(currentSegment, totalSegments) {
+  const currentSegmentEl = document.getElementById('migshot-current-segment');
+  const progressFillEl = document.getElementById('migshot-progress-fill');
+
+  if (currentSegmentEl && progressFillEl) {
+    currentSegmentEl.textContent = currentSegment;
+    const percentage = (currentSegment / totalSegments) * 100;
+    progressFillEl.style.width = percentage + '%';
+  }
+}
+
+function handleRollingKeyDown(e) {
+  if (e.key === 'Escape') {
+    cleanupRollingCapture();
+  }
+}
+
+function cleanupRollingCapture() {
+  if (rollingOverlay) {
+    rollingOverlay.remove();
+    rollingOverlay = null;
+  }
+
+  if (rollingInstructionText) {
+    rollingInstructionText.remove();
+    rollingInstructionText = null;
+  }
+
+  if (rollingProgressBar) {
+    rollingProgressBar.remove();
+    rollingProgressBar = null;
+  }
+  
+  // Clean up animation styles
+  const style = document.getElementById('migshot-rolling-styles');
+  if (style) {
+    style.remove();
+  }
+
+  document.removeEventListener('keydown', handleRollingKeyDown);
+}

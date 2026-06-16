@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sphere MIGshot Archive</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1b5273 0%, #256D96 100%);
+      color: #1a1f2e;
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #256D96 0%, #1b5273 100%);
+      color: white;
+      padding: 20px 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 3px solid #00B0F0;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .logo {
+      width: 40px;
+      height: 40px;
+    }
+
+    .title {
+      font-family: 'Bahnschrift SemiBold','Bahnschrift',Calibri,sans-serif;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .stats {
+      font-size: 14px;
+      color: rgba(255,255,255,0.8);
+      margin-top: 4px;
+    }
+
+    .header-buttons {
+      display: flex;
+      gap: 10px;
+    }
+
+    /* Case Selection Bar */
+    .case-bar {
+      background: #f8f9fa;
+      padding: 20px 30px;
+      border-bottom: 2px solid #e2e5ea;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .case-selector {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex: 1;
+    }
+
+    .case-label {
+      font-weight: 600;
+      color: #256D96;
+      font-size: 14px;
+    }
+
+    .case-dropdown {
+      padding: 10px 15px;
+      border: 2px solid #256D96;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      background: white;
+      color: #256D96;
+      cursor: pointer;
+      min-width: 300px;
+      outline: none;
+      transition: all 0.2s;
+    }
+
+    .case-dropdown:hover {
+      border-color: #1b5273;
+      background: #f8f9fa;
+    }
+
+    .case-dropdown:focus {
+      border-color: #00B0F0;
+      box-shadow: 0 0 0 3px rgba(0, 176, 240, 0.1);
+    }
+
+    /* Subject Tabs */
+    .subject-tabs {
+      background: white;
+      padding: 0 30px;
+      border-bottom: 2px solid #e2e5ea;
+      display: flex;
+      gap: 5px;
+      overflow-x: auto;
+    }
+
+    .subject-tab {
+      padding: 15px 25px;
+      background: transparent;
+      border: none;
+      border-bottom: 3px solid transparent;
+      color: #666;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .subject-tab:hover {
+      color: #256D96;
+      background: #f8f9fa;
+    }
+
+    .subject-tab.active {
+      color: #256D96;
+      border-bottom-color: #00B0F0;
+      background: #f8f9fa;
+    }
+
+    .subject-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      background: #00B0F0;
+      color: white;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+      margin-left: 6px;
+      text-transform: uppercase;
+    }
+
+    /* Platform Tabs */
+    .platform-tabs {
+      background: white;
+      padding: 15px 30px;
+      border-bottom: 2px solid #e2e5ea;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .platform-tab {
+      padding: 8px 16px;
+      background: #f0f0f0;
+      border: 2px solid transparent;
+      border-radius: 20px;
+      color: #555;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .platform-tab:hover {
+      background: #e0e0e0;
+      border-color: #256D96;
+    }
+
+    .platform-tab.active {
+      background: #256D96;
+      color: white;
+      border-color: #256D96;
+    }
+
+    .platform-count {
+      display: inline-block;
+      padding: 2px 6px;
+      background: rgba(255,255,255,0.3);
+      border-radius: 10px;
+      font-size: 11px;
+      margin-left: 5px;
+    }
+
+    .platform-tab.active .platform-count {
+      background: rgba(255,255,255,0.2);
+    }
+
+    /* Bulk Actions Bar */
+    .bulk-actions-bar {
+      background: #f8f9fa;
+      padding: 12px 30px;
+      border-bottom: 2px solid #e2e5ea;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.3s;
+    }
+
+    .bulk-actions-bar.hidden {
+      display: none;
+    }
+
+    .bulk-actions-left {
+      display: flex;
+      align-items: center;
+      font-size: 14px;
+      font-weight: 600;
+      color: #256D96;
+    }
+
+    .bulk-actions-right {
+      display: flex;
+      gap: 10px;
+    }
+
+    .capture-card.selected {
+      outline: 3px solid #256D96;
+      outline-offset: -3px;
+    }
+
+    /* Buttons */
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .btn-secondary {
+      background: #6c757d;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: #5a6268;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #256D96 0%, #1b5273 100%);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(37, 109, 150, 0.3);
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+      color: white;
+    }
+
+    .btn-danger:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+    }
+
+    .btn-warning {
+      background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+      color: white;
+    }
+
+    .btn-warning:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(243, 156, 18, 0.3);
+    }
+
+    .btn-success {
+      background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+      color: white;
+    }
+
+    .btn-success:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(39, 174, 96, 0.3);
+    }
+
+    .btn-gold {
+      background: linear-gradient(135deg, #00B0F0 0%, #0098D4 100%);
+      color: white;
+    }
+
+    .btn-gold:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 176, 240, 0.3);
+    }
+
+    /* Capture Cards (v6.7 style) */
+    .captures-container {
+      padding: 30px;
+      padding-bottom: 60px;
+    }
+
+    .capture-card {
+      background: white;
+      border: 1px solid #e2e5ea;
+      border-radius: 6px;
+      margin-bottom: 12px;
+      overflow: hidden;
+      transition: all 0.2s;
+    }
+
+    .capture-card:hover {
+      border-color: #256D96;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    .capture-card.collapsed .capture-content {
+      display: none;
+    }
+
+    .capture-header {
+      background: #f8f9fa;
+      padding: 10px 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      border-bottom: 1px solid #e2e5ea;
+    }
+
+    .capture-header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .collapse-btn {
+      background: none;
+      border: none;
+      font-size: 16px;
+      cursor: pointer;
+      transition: transform 0.2s;
+      color: #666;
+    }
+
+    .capture-card.collapsed .collapse-btn {
+      transform: rotate(-90deg);
+    }
+
+    .drag-handle {
+      cursor: move;
+      font-size: 18px;
+      color: #999;
+    }
+
+    .platform-badge {
+      padding: 4px 10px;
+      background: #256D96;
+      color: white;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .capture-number {
+      font-size: 13px;
+      color: #666;
+      font-weight: 600;
+    }
+
+    .capture-time {
+      font-size: 12px;
+      color: #999;
+    }
+
+    .capture-content {
+      padding: 15px;
+      display: grid;
+      grid-template-columns: 300px 1fr auto;
+      gap: 20px;
+      align-items: start;
+    }
+
+    .capture-screenshot {
+      width: 100%;
+      max-width: 300px;
+      max-height: 400px;
+      object-fit: contain;
+      border-radius: 4px;
+      border: 1px solid #e2e5ea;
+      display: block;
+      background: #f8f9fa;
+    }
+
+    .capture-left {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-width: 300px;
+      max-width: 300px;
+    }
+
+    .capture-center {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .capture-right {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .capture-details {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    .detail-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .detail-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #256D96;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .date-input-wrapper {
+      display: flex;
+      gap: 6px;
+    }
+
+    .date-input {
+      flex: 1;
+      padding: 6px 10px;
+      border: 1px solid #e2e5ea;
+      border-radius: 4px;
+      font-size: 12px;
+      outline: none;
+    }
+
+    .date-input:focus {
+      border-color: #256D96;
+    }
+
+    .btn-save-date {
+      padding: 6px 12px;
+      background: #00B0F0;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn-save-date:hover {
+      background: #0098D4;
+    }
+
+    .date-badge-preview {
+      max-width: 160px;
+      height: auto;
+      border-radius: 4px;
+    }
+
+    .detail-value {
+      font-size: 12px;
+      color: #555;
+      word-break: break-all;
+      line-height: 1.4;
+    }
+
+    .detail-value a {
+      color: #256D96;
+      text-decoration: none;
+    }
+
+    .detail-value a:hover {
+      text-decoration: underline;
+    }
+
+    /* Drag and Drop */
+    .capture-card.dragging {
+      opacity: 0.5;
+    }
+
+    .drag-handle {
+      cursor: move;
+      font-size: 18px;
+      color: #999;
+    }
+
+    .capture-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .capture-actions button {
+      width: 100%;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .btn-notes {
+      background: #2196F3;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-notes:hover {
+      background: #1976D2;
+    }
+
+    .btn-notes.has-notes {
+      background: #256D96;
+    }
+
+    .btn-notes.has-notes:hover {
+      background: #1b5273;
+    }
+
+    /* Notes Modal */
+    .notes-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+    }
+
+    .notes-modal-content {
+      background: white;
+      border-radius: 8px;
+      padding: 24px;
+      max-width: 600px;
+      width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+
+    .notes-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .notes-modal-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #256D96;
+    }
+
+    .notes-modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      color: #999;
+      cursor: pointer;
+      padding: 0;
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .notes-modal-close:hover {
+      color: #333;
+    }
+
+    .notes-textarea {
+      width: 100%;
+      min-height: 150px;
+      padding: 12px;
+      border: 2px solid #e2e5ea;
+      border-radius: 6px;
+      font-family: 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      resize: vertical;
+      outline: none;
+      margin-bottom: 16px;
+    }
+
+    .notes-textarea:focus {
+      border-color: #256D96;
+    }
+
+    .notes-modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .copy-option {
+      background: #f8f9fa;
+      padding: 12px;
+      border-radius: 6px;
+      border: 1px solid #e2e5ea;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: #555;
+    }
+
+    .copy-option input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+
+    .copy-option label {
+      cursor: pointer;
+      user-select: none;
+      flex: 1;
+    }
+
+    /* Account List Modal */
+    .account-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .account-option {
+      padding: 16px 20px;
+      background: #f8f9fa;
+      border: 2px solid #e2e5ea;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 14px;
+      color: #1a1f2e;
+      font-weight: 500;
+    }
+
+    .account-option:hover {
+      background: #E0F2FC;
+      border-color: #256D96;
+      transform: translateX(4px);
+    }
+
+    .account-option.current {
+      background: #d4edda;
+      border-color: #00B0F0;
+    }
+
+    .account-option.new-account {
+      background: #e3f2fd;
+      border-color: #2196F3;
+      color: #1976D2;
+      font-weight: 600;
+    }
+
+    .account-option.new-account:hover {
+      background: #bbdefb;
+      border-color: #1976D2;
+    }
+
+    .btn-small {
+      padding: 8px 16px;
+      font-size: 13px;
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 80px 20px;
+      color: #999;
+    }
+
+    .empty-icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+    }
+
+    .empty-text {
+      font-size: 18px;
+      font-weight: 600;
+      color: #666;
+      margin-bottom: 10px;
+    }
+
+    .empty-subtext {
+      font-size: 14px;
+      color: #999;
+    }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      background: #27ae60;
+      color: white;
+      padding: 15px 25px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      font-size: 14px;
+      font-weight: 600;
+      z-index: 10000;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.3s;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .toast.error {
+      background: #e74c3c;
+    }
+
+    /* Hidden */
+    .hidden {
+      display: none !important;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #f1f1f1;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #256D96;
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #1b5273;
+    }
+
+    /* Sphere upload badge */
+    .uploaded-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      margin-left: 8px;
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #28a745;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+      vertical-align: middle;
+      cursor: help;
+    }
+
+    /* Sphere case-bar action row */
+    .case-bar-actions { display: flex; gap: 8px; }
+    .case-bar-icon-btn {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      opacity: 0.6;
+      padding: 4px 6px;
+    }
+    .case-bar-icon-btn:hover:not(:disabled) { opacity: 1; }
+    .case-bar-icon-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div class="header-left">
+        <img src="sphere-logo.png" alt="Sphere MIGshot" class="logo">
+        <div>
+          <div class="title">Sphere MIGshot Archive</div>
+          <div class="stats" id="stats">Total: 0 captures</div>
+        </div>
+      </div>
+      <div class="header-buttons">
+        <button class="btn btn-secondary" id="toggleCollapseBtn">📋 Collapse All</button>
+        <button class="btn btn-secondary" id="sphereSettingsBtn" title="Configure Sphere upload">⚙ Sphere Settings</button>
+        <button class="btn btn-warning" id="deleteCaseBtn">🗑️ Delete Case</button>
+        <button class="btn btn-danger" id="clearAllBtn">⚠️ Wipe Archive</button>
+      </div>
+    </div>
+
+    <!-- Case Selection Bar -->
+    <div class="case-bar">
+      <div class="case-selector">
+        <span class="case-label">Case:</span>
+        <select class="case-dropdown" id="caseDropdown">
+          <option value="">Loading...</option>
+        </select>
+        <button type="button" id="editCaseMigBtn" class="case-bar-icon-btn" title="Edit TrackOps Case # for this case" disabled>✏️</button>
+      </div>
+      <div class="case-bar-actions">
+        <button type="button" id="uploadCaseBtn" class="btn btn-primary" disabled>⬆ Upload to Sphere (0)</button>
+        <button type="button" id="resendCaseBtn" class="btn btn-secondary" title="Re-send every shot in this case to Sphere — use only to rebuild a case that was wiped/recreated in Nexus." disabled>🔄 Resend All (0)</button>
+        <button type="button" id="clearUploadedBtn" class="btn btn-secondary" disabled>🗑 Clear Uploaded (0)</button>
+      </div>
+    </div>
+
+    <!-- Subject Tabs -->
+    <div class="subject-tabs" id="subjectTabs">
+      <!-- Populated by JS -->
+    </div>
+
+    <!-- Platform Tabs -->
+    <div class="platform-tabs" id="platformTabs">
+      <!-- Populated by JS -->
+    </div>
+
+    <!-- Bulk Actions Bar -->
+    <div class="bulk-actions-bar hidden" id="bulkActionsBar">
+      <div class="bulk-actions-left">
+        <input type="checkbox" id="selectAllCheckbox" style="margin-right: 8px; cursor: pointer; width: 16px; height: 16px; accent-color: #256D96;">
+        <span id="selectedCount">0 selected</span>
+      </div>
+      <div class="bulk-actions-right">
+        <button class="btn btn-primary" id="bulkMoveBtn">↔️ Move Selected</button>
+        <button class="btn" id="bulkNoLinkBtn" style="background: #9b59b6; color: white;">🔗 Mark as No Link</button>
+        <button class="btn btn-secondary" id="deselectAllBtn">✕ Deselect All</button>
+      </div>
+    </div>
+
+    <!-- Captures Container -->
+    <div class="captures-container" id="capturesContainer">
+      <!-- Populated by JS -->
+    </div>
+  </div>
+
+  <script src="archive.js"></script>
+</body>
+</html>
