@@ -129,9 +129,46 @@ Each capture card has a **📄 About** button:
 ## Keyboard Shortcut
 - **Alt+S**: Quick capture (uses current active case)
 
+## Sphere Nexus Upload
+
+MIGShot can push captures to the Sphere Nexus platform for inclusion
+in IPR / IPRBG reports.
+
+### Setup (one-time)
+
+1. Right-click the MIGShot extension icon → **Options**.
+2. Enter your Sphere URL (e.g. `http://127.0.0.1:8000`) and an API
+   token (generate at `<sphere-url>/settings`).
+3. Click **Test Connection** to confirm.
+4. Click **Save Settings**. Chrome will request permission to reach
+   that origin — approve.
+
+### Per-case upload
+
+In the archive, each case header shows:
+
+- **⬆ Upload to Sphere (N)** — pushes the N un-uploaded captures for
+  the active case. Successful captures get a green "✓ Uploaded" badge.
+  Failures are listed in a summary modal at the end.
+- **🔄 Resend All (T)** — after confirming, re-POSTs **every** one of the
+  T shots in the case, including ones already marked uploaded, and refreshes
+  their `uploadedAt` / capture IDs. Use this only to rebuild a case that was
+  wiped or recreated server-side in Nexus, where a normal upload would skip
+  the already-uploaded shots.
+- **🗑 Clear Uploaded (M)** — after confirming, deletes M uploaded
+  captures from local storage to free up Chrome's quota.
+
+### TrackOps Case #
+
+The case number on the New Case form is now the **TrackOps case
+number** (e.g. `S00027-01`). This is the key Sphere uses to find the
+claimant. For old cases whose case# is still a timestamp, use the
+**✏️** pencil next to the case dropdown in the archive to update it.
+All captures under that case are rewritten automatically.
+
 ## Technical Notes
 
-- MIG# format is validated: Must be exactly 5 digits, hyphen, 1 digit (e.g., 12345-1)
+- The case# on the New Case form is the TrackOps case number (e.g. `S00027-01`)
 - Cases persist across browser sessions
 - If no case is active, you'll be prompted to create one
 - All captures are still stored with platform detection (Facebook, Instagram, TikTok, etc.)

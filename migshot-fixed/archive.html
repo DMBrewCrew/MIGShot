@@ -73,7 +73,8 @@
       border-bottom: 2px solid #e0e0e0;
       display: flex;
       align-items: center;
-      gap: 20px;
+      justify-content: space-between;
+      gap: 10px;
     }
 
     .case-selector {
@@ -207,6 +208,39 @@
       background: rgba(255,255,255,0.2);
     }
 
+    /* Bulk Actions Bar */
+    .bulk-actions-bar {
+      background: #f8f9fa;
+      padding: 12px 30px;
+      border-bottom: 2px solid #e0e0e0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.3s;
+    }
+
+    .bulk-actions-bar.hidden {
+      display: none;
+    }
+
+    .bulk-actions-left {
+      display: flex;
+      align-items: center;
+      font-size: 14px;
+      font-weight: 600;
+      color: #2B5F6F;
+    }
+
+    .bulk-actions-right {
+      display: flex;
+      gap: 10px;
+    }
+
+    .capture-card.selected {
+      outline: 3px solid #2B5F6F;
+      outline-offset: -3px;
+    }
+
     /* Buttons */
     .btn {
       padding: 10px 20px;
@@ -217,6 +251,17 @@
       cursor: pointer;
       transition: all 0.2s;
       white-space: nowrap;
+    }
+
+    .btn-secondary {
+      background: #6c757d;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: #5a6268;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
     }
 
     .btn-primary {
@@ -237,6 +282,16 @@
     .btn-danger:hover {
       transform: translateY(-1px);
       box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+    }
+
+    .btn-warning {
+      background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+      color: white;
+    }
+
+    .btn-warning:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(243, 156, 18, 0.3);
     }
 
     .btn-success {
@@ -262,8 +317,7 @@
     /* Capture Cards (v6.7 style) */
     .captures-container {
       padding: 30px;
-      max-height: calc(100vh - 400px);
-      overflow-y: auto;
+      padding-bottom: 60px;
     }
 
     .capture-card {
@@ -342,22 +396,28 @@
     .capture-content {
       padding: 15px;
       display: grid;
-      grid-template-columns: 200px 1fr 140px;
-      gap: 15px;
+      grid-template-columns: 300px 1fr auto;
+      gap: 20px;
       align-items: start;
     }
 
     .capture-screenshot {
       width: 100%;
+      max-width: 300px;
+      max-height: 400px;
+      object-fit: contain;
       border-radius: 4px;
       border: 1px solid #e0e0e0;
       display: block;
+      background: #f8f9fa;
     }
 
     .capture-left {
       display: flex;
       flex-direction: column;
       gap: 10px;
+      min-width: 300px;
+      max-width: 300px;
     }
 
     .capture-center {
@@ -427,7 +487,7 @@
     }
 
     .date-badge-preview {
-      max-width: 180px;
+      max-width: 160px;
       height: auto;
       border-radius: 4px;
     }
@@ -474,7 +534,7 @@
     }
 
     .btn-notes {
-      background: #9B9565;
+      background: #2196F3;
       color: white;
       border: none;
       border-radius: 4px;
@@ -483,7 +543,7 @@
     }
 
     .btn-notes:hover {
-      background: #7a7550;
+      background: #1976D2;
     }
 
     .btn-notes.has-notes {
@@ -598,6 +658,48 @@
       flex: 1;
     }
 
+    /* Account List Modal */
+    .account-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .account-option {
+      padding: 16px 20px;
+      background: #f8f9fa;
+      border: 2px solid #e0e0e0;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 14px;
+      color: #333;
+      font-weight: 500;
+    }
+
+    .account-option:hover {
+      background: #e8e6dc;
+      border-color: #2B5F6F;
+      transform: translateX(4px);
+    }
+
+    .account-option.current {
+      background: #d4edda;
+      border-color: #9B9565;
+    }
+
+    .account-option.new-account {
+      background: #e3f2fd;
+      border-color: #2196F3;
+      color: #1976D2;
+      font-weight: 600;
+    }
+
+    .account-option.new-account:hover {
+      background: #bbdefb;
+      border-color: #1976D2;
+    }
+
     .btn-small {
       padding: 8px 16px;
       font-size: 13px;
@@ -677,6 +779,34 @@
     ::-webkit-scrollbar-thumb:hover {
       background: #1a3d48;
     }
+
+    /* Sphere upload badge */
+    .uploaded-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      margin-left: 8px;
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #28a745;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+      vertical-align: middle;
+      cursor: help;
+    }
+
+    /* Sphere case-bar action row */
+    .case-bar-actions { display: flex; gap: 8px; }
+    .case-bar-icon-btn {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      opacity: 0.6;
+      padding: 4px 6px;
+    }
+    .case-bar-icon-btn:hover:not(:disabled) { opacity: 1; }
+    .case-bar-icon-btn:disabled { opacity: 0.25; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -691,7 +821,10 @@
         </div>
       </div>
       <div class="header-buttons">
-        <button class="btn btn-danger" id="clearAllBtn">Clear All</button>
+        <button class="btn btn-secondary" id="toggleCollapseBtn">📋 Collapse All</button>
+        <button class="btn btn-secondary" id="sphereSettingsBtn" title="Configure Sphere upload">⚙ Sphere Settings</button>
+        <button class="btn btn-warning" id="deleteCaseBtn">🗑️ Delete Case</button>
+        <button class="btn btn-danger" id="clearAllBtn">⚠️ Wipe Archive</button>
       </div>
     </div>
 
@@ -702,6 +835,12 @@
         <select class="case-dropdown" id="caseDropdown">
           <option value="">Loading...</option>
         </select>
+        <button type="button" id="editCaseMigBtn" class="case-bar-icon-btn" title="Edit TrackOps Case # for this case" disabled>✏️</button>
+      </div>
+      <div class="case-bar-actions">
+        <button type="button" id="uploadCaseBtn" class="btn btn-primary" disabled>⬆ Upload to Sphere (0)</button>
+        <button type="button" id="resendCaseBtn" class="btn btn-secondary" title="Re-send every shot in this case to Sphere — use only to rebuild a case that was wiped/recreated in Nexus." disabled>🔄 Resend All (0)</button>
+        <button type="button" id="clearUploadedBtn" class="btn btn-secondary" disabled>🗑 Clear Uploaded (0)</button>
       </div>
     </div>
 
@@ -713,6 +852,19 @@
     <!-- Platform Tabs -->
     <div class="platform-tabs" id="platformTabs">
       <!-- Populated by JS -->
+    </div>
+
+    <!-- Bulk Actions Bar -->
+    <div class="bulk-actions-bar hidden" id="bulkActionsBar">
+      <div class="bulk-actions-left">
+        <input type="checkbox" id="selectAllCheckbox" style="margin-right: 8px; cursor: pointer; width: 16px; height: 16px; accent-color: #2B5F6F;">
+        <span id="selectedCount">0 selected</span>
+      </div>
+      <div class="bulk-actions-right">
+        <button class="btn btn-primary" id="bulkMoveBtn">↔️ Move Selected</button>
+        <button class="btn" id="bulkNoLinkBtn" style="background: #9b59b6; color: white;">🔗 Mark as No Link</button>
+        <button class="btn btn-secondary" id="deselectAllBtn">✕ Deselect All</button>
+      </div>
     </div>
 
     <!-- Captures Container -->

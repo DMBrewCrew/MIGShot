@@ -396,17 +396,15 @@ function restoreFixedElements() {
   console.log('MIGShot: Fixed elements restored');
 }
 
-// Rolling capture system - Auto-scroll approach (like Snagit/Greenshot)
+// Rolling capture system - Automatic full-page capture
 let rollingOverlay = null;
-let rollingBox = null;
 let rollingInstructionText = null;
 let rollingProgressBar = null;
-let isRollingSelecting = false;
-let rollingStartX = 0;
-let rollingStartY = 0;
 
 function startRollingCapture() {
-  // Create overlay
+  console.log('Starting automatic full-page rolling capture');
+  
+  // Show status overlay with pulsing animation
   rollingOverlay = document.createElement('div');
   rollingOverlay.id = 'migshot-rolling-overlay';
   rollingOverlay.style.cssText = `
@@ -415,21 +413,24 @@ function startRollingCapture() {
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(155, 149, 101, 0.2);
+    background: rgba(155, 149, 101, 0.3);
     z-index: 999999;
-    cursor: crosshair;
-  `;
-
-  // Create selection box
-  rollingBox = document.createElement('div');
-  rollingBox.style.cssText = `
-    position: fixed;
-    border: 3px solid #9B9565;
-    background: rgba(155, 149, 101, 0.15);
-    display: none;
-    z-index: 1000000;
     pointer-events: none;
+    animation: migshot-pulse 1.5s ease-in-out infinite;
   `;
+  
+  // Add keyframe animation for pulsing effect
+  if (!document.getElementById('migshot-rolling-styles')) {
+    const style = document.createElement('style');
+    style.id = 'migshot-rolling-styles';
+    style.textContent = `
+      @keyframes migshot-pulse {
+        0%, 100% { background: rgba(155, 149, 101, 0.2); }
+        50% { background: rgba(155, 149, 101, 0.4); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
 
   // Create instruction text
   rollingInstructionText = document.createElement('div');
@@ -452,76 +453,29 @@ function startRollingCapture() {
     max-width: 600px;
     text-align: center;
   `;
-  rollingInstructionText.innerHTML = '🔄 <strong>Rolling Screenshot:</strong> Click and drag to select area • ESC to cancel';
+  rollingInstructionText.innerHTML = '🔄 <strong>Rolling Capture:</strong> Capturing full page...';
 
   document.body.appendChild(rollingOverlay);
-  document.body.appendChild(rollingBox);
   document.body.appendChild(rollingInstructionText);
 
-  // Event listeners
-  rollingOverlay.addEventListener('mousedown', handleRollingMouseDown);
-  rollingOverlay.addEventListener('mousemove', handleRollingMouseMove);
-  rollingOverlay.addEventListener('mouseup', handleRollingMouseUp);
+  // ESC key to cancel
   document.addEventListener('keydown', handleRollingKeyDown);
+
+  // Start capture automatically after brief delay
+  setTimeout(() => {
+    startAutomaticCapture();
+  }, 500);
 }
 
-function handleRollingMouseDown(e) {
-  isRollingSelecting = true;
-  rollingStartX = e.clientX;
-  rollingStartY = e.clientY;
-
-  rollingBox.style.left = rollingStartX + 'px';
-  rollingBox.style.top = rollingStartY + 'px';
-  rollingBox.style.width = '0px';
-  rollingBox.style.height = '0px';
-  rollingBox.style.display = 'block';
-}
-
-function handleRollingMouseMove(e) {
-  if (!isRollingSelecting) return;
-
-  const currentX = e.clientX;
-  const currentY = e.clientY;
-
-  const width = Math.abs(currentX - rollingStartX);
-  const height = Math.abs(currentY - rollingStartY);
-  const left = Math.min(rollingStartX, currentX);
-  const top = Math.min(rollingStartY, currentY);
-
-  rollingBox.style.left = left + 'px';
-  rollingBox.style.top = top + 'px';
-  rollingBox.style.width = width + 'px';
-  rollingBox.style.height = height + 'px';
-}
-
-async function handleRollingMouseUp(e) {
-  if (!isRollingSelecting) return;
-
-  isRollingSelecting = false;
-
-  const currentX = e.clientX;
-  const currentY = e.clientY;
-
-  const width = Math.abs(currentX - rollingStartX);
-  const height = Math.abs(currentY - rollingStartY);
-  const left = Math.min(rollingStartX, currentX);
-  const top = Math.min(rollingStartY, currentY);
-
-  // Minimum selection size (50x50)
-  if (width < 50 || height < 50) {
-    cleanupRollingCapture();
-    alert('Selection too small. Please select a larger area.');
-    return;
-  }
-
-  // Find the scrollable element at this position
-  const elementAtPoint = document.elementFromPoint(left + width / 2, top + height / 2);
-  const scrollableElement = findScrollableParent(elementAtPoint);
-
-  console.log('Rolling capture: Selected area', { left, top, width, height });
-  console.log('Rolling capture: Scrollable element:', scrollableElement);
+async function startAutomaticCapture() {
+  // Use full viewport width
+  const left = 0;
+  const width = window.innerWidth;
+  const top = 0;
 
   // Calculate total scrollable height
+  const scrollableElement = findScrollableParent(document.body);
+  
   let totalScrollHeight;
   let scrollElement;
 
@@ -542,64 +496,63 @@ async function handleRollingMouseUp(e) {
 
   // Calculate how many segments we need
   const viewportHeight = window.innerHeight;
-  const overlapAmount = 150; // pixels of overlap between segments
+  const overlapAmount = 100; // pixels of overlap between segments
   const segmentStep = viewportHeight - overlapAmount;
 
   // Calculate the starting scroll position
   const initialScrollY = scrollElement ? scrollElement.scrollTop : window.scrollY;
-  const selectionTopAbsolute = top + initialScrollY;
 
-  // Calculate total height to capture (from top of selection to bottom of scrollable area)
-  const remainingHeight = totalScrollHeight - selectionTopAbsolute;
-  const captureHeight = Math.max(height, remainingHeight);
-  const numSegments = Math.ceil(captureHeight / segmentStep);
-
-  console.log('Rolling capture: Will capture', numSegments, 'segments');
-  console.log('Rolling capture: Initial scroll:', initialScrollY);
-  console.log('Rolling capture: Total scrollable height:', totalScrollHeight);
-  console.log('Rolling capture: Capture height:', captureHeight);
-
-  // Show progress indicator
-  showProgressIndicator(numSegments);
-
-  // Build segment data for auto-scroll
+  // Calculate segments - create more than needed, background.js will stop when it hits bottom
   const segments = [];
-  for (let i = 0; i < numSegments; i++) {
-    const segmentScrollY = initialScrollY + (i * segmentStep);
-    const segmentY = (i === 0) ? top : 0; // First segment crops from selection top, others from viewport top
-
+  let currentScrollY = 0;
+  let segmentIndex = 0;
+  
+  // Generate segments at regular intervals
+  // We might create more than needed, but background.js will detect the actual bottom
+  const maxSegments = Math.ceil(totalScrollHeight / segmentStep) + 2; // +2 for safety margin
+  
+  while (segmentIndex < maxSegments) {
     segments.push({
-      scrollY: segmentScrollY,
+      scrollY: currentScrollY,
       bounds: {
         x: left,
-        y: segmentY,
+        y: 0,
         width: width,
         height: viewportHeight,
         windowWidth: window.innerWidth,
         windowHeight: window.innerHeight,
         devicePixelRatio: window.devicePixelRatio || 1
       },
-      overlap: i === 0 ? 0 : overlapAmount,
-      isLast: i === numSegments - 1,
-      segmentIndex: i
+      overlap: segmentIndex === 0 ? 0 : overlapAmount,
+      isLast: false, // Background.js will detect the real last segment
+      segmentIndex: segmentIndex
     });
+    
+    currentScrollY += segmentStep;
+    segmentIndex++;
+    
+    // Safety check - don't generate crazy number of segments
+    if (currentScrollY > totalScrollHeight + (viewportHeight * 2)) {
+      break;
+    }
   }
+
+  console.log('Rolling capture: Generated', segments.length, 'segments (may capture fewer)');
+  console.log('Rolling capture: Total scrollable height:', totalScrollHeight);
+
+  // Show progress indicator
+  showProgressIndicator(segments.length);
 
   const platform = getPlatform();
 
-  // Remove mouse event listeners
-  rollingOverlay.removeEventListener('mousedown', handleRollingMouseDown);
-  rollingOverlay.removeEventListener('mousemove', handleRollingMouseMove);
-  rollingOverlay.removeEventListener('mouseup', handleRollingMouseUp);
-
-  // Keep overlay visible during capture to show progress
+  // Update instruction text
   rollingInstructionText.innerHTML = '🔄 <strong>Capturing...</strong> Auto-scrolling and capturing segments';
 
-  // Send rolling capture data to background with scrollElement info
+  // Send rolling capture data to background
   chrome.runtime.sendMessage({
     action: 'captureRollingSelection',
     segments: segments,
-    totalHeight: captureHeight,
+    totalHeight: totalScrollHeight,
     overlapAmount: overlapAmount,
     platform: platform,
     url: window.location.href,
@@ -653,24 +606,25 @@ function showProgressIndicator(totalSegments) {
   rollingProgressBar = document.createElement('div');
   rollingProgressBar.style.cssText = `
     position: fixed;
-    top: 80px;
+    top: 100px;
     left: 50%;
     transform: translateX(-50%);
-    width: 400px;
-    background: rgba(43, 95, 111, 0.95);
-    border-radius: 8px;
-    padding: 16px;
+    width: 500px;
+    background: rgba(43, 95, 111, 0.98);
+    border-radius: 12px;
+    padding: 24px;
     z-index: 1000002;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    border: 3px solid #9B9565;
   `;
 
   rollingProgressBar.innerHTML = `
-    <div style="color: white; font-size: 12px; margin-bottom: 8px; text-align: center;">
-      Capturing segment <span id="migshot-current-segment">0</span> of ${totalSegments}
+    <div style="color: white; font-size: 16px; font-weight: 600; margin-bottom: 12px; text-align: center;">
+      📸 Capturing segment <span id="migshot-current-segment">0</span> of ${totalSegments}
     </div>
-    <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.2); border-radius: 4px; overflow: hidden;">
-      <div id="migshot-progress-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #9B9565 0%, #d4cc8e 100%); transition: width 0.3s ease;"></div>
+    <div style="width: 100%; height: 12px; background: rgba(255,255,255,0.2); border-radius: 6px; overflow: hidden; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);">
+      <div id="migshot-progress-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #9B9565 0%, #d4cc8e 100%); transition: width 0.3s ease; box-shadow: 0 0 10px rgba(155, 149, 101, 0.5);"></div>
     </div>
   `;
 
@@ -696,19 +650,9 @@ function handleRollingKeyDown(e) {
 }
 
 function cleanupRollingCapture() {
-  isRollingSelecting = false;
-
   if (rollingOverlay) {
-    rollingOverlay.removeEventListener('mousedown', handleRollingMouseDown);
-    rollingOverlay.removeEventListener('mousemove', handleRollingMouseMove);
-    rollingOverlay.removeEventListener('mouseup', handleRollingMouseUp);
     rollingOverlay.remove();
     rollingOverlay = null;
-  }
-
-  if (rollingBox) {
-    rollingBox.remove();
-    rollingBox = null;
   }
 
   if (rollingInstructionText) {
@@ -719,6 +663,12 @@ function cleanupRollingCapture() {
   if (rollingProgressBar) {
     rollingProgressBar.remove();
     rollingProgressBar = null;
+  }
+  
+  // Clean up animation styles
+  const style = document.getElementById('migshot-rolling-styles');
+  if (style) {
+    style.remove();
   }
 
   document.removeEventListener('keydown', handleRollingKeyDown);

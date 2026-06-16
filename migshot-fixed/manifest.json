@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MIGShot",
-  "version": "6.14.0",
+  "version": "7.5.0",
   "description": "Marshall Investigative Group - Professional content capture tool for any website. © 2025 Anthony Klarich",
   "permissions": [
     "activeTab",
@@ -11,6 +11,11 @@
     "storage",
     "unlimitedStorage"
   ],
+  "optional_host_permissions": ["<all_urls>"],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -42,7 +47,7 @@
         "default": "Shift+Alt+S",
         "mac": "Shift+Alt+S"
       },
-      "description": "Rolling capture - automatic scrolling"
+      "description": "Capture entire page automatically"
     }
   },
   "icons": {

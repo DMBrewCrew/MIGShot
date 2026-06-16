@@ -3,7 +3,17 @@ let allCaptures = [];
 let allCases = [];
 let currentCaseKey = null; // Format: "caseName|||caseMIG" or "uncategorized"
 let currentSubject = null;
-let currentPlatform = 'all';
+let currentPlatform = null; // Will be set to first platform account when loading
+let collapseStates = {}; // Track collapse state by capture index
+let selectedCaptures = new Set(); // Track selected captures for bulk actions
+let draggedCardIndex = null; // Track which card is being dragged for reordering
+
+// Helper function to find capture by originalIndex (permanent ID)
+// CRITICAL: After sorting, array positions != originalIndex
+// Always use this function instead of findCaptureByIndex(index)
+function findCaptureByIndex(originalIndex) {
+  return allCaptures.find(c => c.originalIndex === originalIndex);
+}
 
 // Helper function to check if date is current year
 function isCurrentYear(dateString) {
@@ -20,19 +30,115 @@ function isCurrentYear(dateString) {
   }
 }
 
+// Helper function to save current filter state to session storage
+function saveFilterState() {
+  const filterState = {
+    caseKey: currentCaseKey,
+    subject: currentSubject,
+    platform: currentPlatform
+  };
+  sessionStorage.setItem('migshot-filter-state', JSON.stringify(filterState));
+}
+
+// Helper function to restore filter state from session storage
+function restoreFilterState() {
+  const saved = sessionStorage.getItem('migshot-filter-state');
+  if (saved) {
+    try {
+      const filterState = JSON.parse(saved);
+      
+      // Set the case dropdown
+      const caseDropdown = document.getElementById('caseDropdown');
+      if (caseDropdown && filterState.caseKey) {
+        const option = Array.from(caseDropdown.options).find(o => o.value === filterState.caseKey);
+        if (option) {
+          caseDropdown.value = filterState.caseKey;
+          currentCaseKey = filterState.caseKey;
+          
+          // Render subject tabs and wait for them to be created
+          renderSubjectTabs();
+          
+          // Set the subject if saved
+          if (filterState.subject) {
+            currentSubject = filterState.subject;
+            const subjectTab = Array.from(document.querySelectorAll('.subject-tab'))
+              .find(t => t.textContent.includes(filterState.subject));
+            if (subjectTab) {
+              document.querySelectorAll('.subject-tab').forEach(t => t.classList.remove('active'));
+              subjectTab.classList.add('active');
+            }
+          }
+          
+          // Set the platform if saved
+          if (filterState.platform) {
+            currentPlatform = filterState.platform;
+            // Platform tabs will be rendered and activated by renderPlatformTabs
+            renderPlatformTabs();
+          } else {
+            renderPlatformTabs();
+          }
+          
+          // Clear the saved state after restoring
+          sessionStorage.removeItem('migshot-filter-state');
+          updateCaseBarButtons();
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error('Error restoring filter state:', error);
+    }
+  }
+  return false;
+}
+
 // Initialize archive
 document.addEventListener('DOMContentLoaded', async () => {
   await loadData();
   renderCaseDropdown();
+  
+  // Try to restore filter state first, otherwise use defaults
+  const restored = restoreFilterState();
+  if (!restored) {
+    // No saved state, proceed normally
+    renderCaseDropdown();
+  }
+  
   setupEventListeners();
   setupAutoRefresh();
 });
 
 // Load all data from storage
 async function loadData() {
-  const result = await chrome.storage.local.get(['captures', 'cases']);
+  const result = await chrome.storage.local.get(['captures', 'cases', 'collapseStates']);
   allCaptures = result.captures || [];
   allCases = result.cases || [];
+  collapseStates = result.collapseStates || {};
+  
+  // MIGRATION: Assign permanent originalIndex to captures that don't have it
+  // originalIndex represents the capture's creation order and NEVER changes
+  let needsIndexMigration = false;
+  let nextIndex = 0;
+  
+  // First, find the highest existing originalIndex
+  allCaptures.forEach(capture => {
+    if (capture.originalIndex !== undefined) {
+      nextIndex = Math.max(nextIndex, capture.originalIndex + 1);
+    }
+  });
+  
+  // Then assign originalIndex to captures that don't have it
+  allCaptures.forEach(capture => {
+    if (capture.originalIndex === undefined) {
+      capture.originalIndex = nextIndex++;
+      needsIndexMigration = true;
+    }
+  });
+  
+  // Save migrated data if needed
+  if (needsIndexMigration) {
+    await chrome.storage.local.set({ captures: allCaptures });
+    console.log('Migration complete: originalIndex assigned');
+  }
   
   // Update stats
   document.getElementById('stats').textContent = `Total: ${allCaptures.length} capture${allCaptures.length !== 1 ? 's' : ''}`;
@@ -61,7 +167,7 @@ function setupAutoRefresh() {
   });
 }
 
-// Organize captures by case/subject/platform
+// Organize captures by case/subject/platform/account
 function organizeCaptures() {
   const organized = {
     cases: {},
@@ -69,7 +175,13 @@ function organizeCaptures() {
   };
   
   allCaptures.forEach((capture, index) => {
-    capture.originalIndex = index;
+    // originalIndex should NEVER be reassigned after initial creation
+    // It represents the capture's permanent ID based on creation order
+    
+    // Backward compatibility: add default accountIdentifier if missing
+    if (!capture.accountIdentifier) {
+      capture.accountIdentifier = '1';
+    }
     
     if (capture.caseName && capture.caseMIG && capture.subjectName) {
       const caseKey = `${capture.caseName}|||${capture.caseMIG}`;
@@ -87,11 +199,13 @@ function organizeCaptures() {
       }
       
       const platform = capture.platform || 'Other';
-      if (!organized.cases[caseKey].subjects[capture.subjectName][platform]) {
-        organized.cases[caseKey].subjects[capture.subjectName][platform] = [];
+      const platformAccount = `${platform}|||${capture.accountIdentifier}`;
+      
+      if (!organized.cases[caseKey].subjects[capture.subjectName][platformAccount]) {
+        organized.cases[caseKey].subjects[capture.subjectName][platformAccount] = [];
       }
       
-      organized.cases[caseKey].subjects[capture.subjectName][platform].push(capture);
+      organized.cases[caseKey].subjects[capture.subjectName][platformAccount].push(capture);
     } else {
       organized.uncategorized.push(capture);
     }
@@ -122,7 +236,7 @@ function renderCaseDropdown() {
     const captureCount = Object.values(caseData.subjects).reduce((sum, subject) => {
       return sum + Object.values(subject).reduce((subSum, captures) => subSum + captures.length, 0);
     }, 0);
-    option.textContent = `📁 ${caseData.caseName} (${caseData.caseMIG}) - ${captureCount} captures`;
+    option.textContent = `📁 ${caseData.caseName} - ${captureCount} captures`;
     dropdown.appendChild(option);
   });
   
@@ -139,6 +253,7 @@ function renderCaseDropdown() {
   currentCaseKey = dropdown.children[0].value;
   dropdown.value = currentCaseKey;
   renderSubjectTabs();
+  updateCaseBarButtons();
 }
 
 // Render subject tabs
@@ -200,49 +315,54 @@ function renderPlatformTabs() {
   container.innerHTML = '';
   
   const organized = organizeCaptures();
-  let platforms = {};
+  let platformAccounts = {};
   
   if (currentCaseKey === 'uncategorized') {
-    // Get platforms from uncategorized
+    // Get platform/accounts from uncategorized
     organized.uncategorized.forEach(capture => {
       const platform = capture.platform || 'Other';
-      platforms[platform] = (platforms[platform] || 0) + 1;
+      const accountId = capture.accountIdentifier || '1';
+      const key = `${platform}|||${accountId}`;
+      platformAccounts[key] = (platformAccounts[key] || 0) + 1;
     });
   } else if (currentCaseKey && currentSubject) {
-    // Get platforms from current case/subject
+    // Get platform/accounts from current case/subject
     const caseData = organized.cases[currentCaseKey];
     if (caseData && caseData.subjects[currentSubject]) {
-      platforms = Object.keys(caseData.subjects[currentSubject]).reduce((acc, platform) => {
-        acc[platform] = caseData.subjects[currentSubject][platform].length;
+      platformAccounts = Object.keys(caseData.subjects[currentSubject]).reduce((acc, platformAccount) => {
+        acc[platformAccount] = caseData.subjects[currentSubject][platformAccount].length;
         return acc;
       }, {});
     }
   }
   
   // Calculate total
-  const total = Object.values(platforms).reduce((sum, count) => sum + count, 0);
+  const total = Object.values(platformAccounts).reduce((sum, count) => sum + count, 0);
   
-  // Add "All" tab
-  const allTab = document.createElement('button');
-  allTab.className = 'platform-tab' + (currentPlatform === 'all' ? ' active' : '');
-  allTab.innerHTML = `All <span class="platform-count">(${total})</span>`;
-  allTab.addEventListener('click', () => {
-    document.querySelectorAll('.platform-tab').forEach(t => t.classList.remove('active'));
-    allTab.classList.add('active');
-    currentPlatform = 'all';
-    renderCaptures();
-  });
-  container.appendChild(allTab);
+  // Get sorted platform accounts
+  const sortedPlatformAccounts = Object.entries(platformAccounts).sort();
   
-  // Add platform tabs
-  Object.entries(platforms).sort().forEach(([platform, count]) => {
+  // If no current platform selected or 'all', default to first platform account
+  if (!currentPlatform || currentPlatform === 'all') {
+    if (sortedPlatformAccounts.length > 0) {
+      currentPlatform = sortedPlatformAccounts[0][0];
+    }
+  }
+  
+  // Add platform/account tabs
+  sortedPlatformAccounts.forEach(([platformAccount, count]) => {
+    const [platform, accountId] = platformAccount.split('|||');
+    
+    // Format display name - account "1" shows as just platform name, others show number
+    let displayName = accountId === '1' ? platform : `${platform} ${accountId}`;
+    
     const tab = document.createElement('button');
-    tab.className = 'platform-tab' + (currentPlatform === platform ? ' active' : '');
-    tab.innerHTML = `${getPlatformIcon(platform)} ${platform} <span class="platform-count">(${count})</span>`;
+    tab.className = 'platform-tab' + (currentPlatform === platformAccount ? ' active' : '');
+    tab.innerHTML = `${getPlatformIcon(platform)} ${displayName} <span class="platform-count">(${count})</span>`;
     tab.addEventListener('click', () => {
       document.querySelectorAll('.platform-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
-      currentPlatform = platform;
+      currentPlatform = platformAccount;
       renderCaptures();
     });
     container.appendChild(tab);
@@ -282,25 +402,47 @@ function getFilteredCaptures() {
   
   if (currentCaseKey === 'uncategorized') {
     filtered = organized.uncategorized;
+    
+    // Filter by platform/account if one is selected
+    if (currentPlatform && currentPlatform !== 'all') {
+      const [targetPlatform, targetAccount] = currentPlatform.split('|||');
+      filtered = filtered.filter(c => {
+        const capturePlatform = c.platform || 'Other';
+        const captureAccount = c.accountIdentifier || '1';
+        return capturePlatform === targetPlatform && captureAccount === targetAccount;
+      });
+    }
   } else if (currentCaseKey && currentSubject) {
     const caseData = organized.cases[currentCaseKey];
     if (caseData && caseData.subjects[currentSubject]) {
-      if (currentPlatform === 'all') {
-        // All platforms
-        Object.values(caseData.subjects[currentSubject]).forEach(captures => {
-          filtered.push(...captures);
-        });
-      } else {
-        // Specific platform
+      if (currentPlatform) {
+        // Specific platform/account (format: "Platform|||accountId")
         filtered = caseData.subjects[currentSubject][currentPlatform] || [];
       }
     }
   }
   
-  // Filter by platform if not "all"
-  if (currentPlatform !== 'all' && currentCaseKey === 'uncategorized') {
-    filtered = filtered.filter(c => (c.platform || 'Other') === currentPlatform);
-  }
+  // Sort by the sortOrders for THIS specific filter view
+  const currentFilter = `${currentCaseKey}|||${currentSubject}|||${currentPlatform}`;
+  
+  filtered.sort((a, b) => {
+    const aOrder = a.sortOrders?.[currentFilter];
+    const bOrder = b.sortOrders?.[currentFilter];
+    
+    // If both have sort orders for this filter, use them
+    if (aOrder !== undefined && bOrder !== undefined) {
+      return aOrder - bOrder;
+    }
+    
+    // If only one has a sort order, it comes first
+    if (aOrder !== undefined) return -1;
+    if (bOrder !== undefined) return 1;
+    
+    // If neither has sort order, fall back to creation time
+    const aTime = a.capturedAt ? new Date(a.capturedAt).getTime() : 0;
+    const bTime = b.capturedAt ? new Date(b.capturedAt).getTime() : 0;
+    return aTime - bTime;
+  });
   
   return filtered;
 }
@@ -318,6 +460,9 @@ function renderCaptures() {
         <div class="empty-subtext">Try selecting a different case, subject, or platform</div>
       </div>
     `;
+    // Clear selections when no captures
+    selectedCaptures.clear();
+    updateBulkActionsBar();
     return;
   }
   
@@ -329,7 +474,17 @@ function renderCaptures() {
   reversed.forEach((capture, displayIndex) => {
     const card = createCaptureCard(capture, displayIndex);
     container.appendChild(card);
+    
+    // Restore selected state if this capture was selected
+    if (selectedCaptures.has(capture.originalIndex)) {
+      const checkbox = card.querySelector('.capture-select-checkbox');
+      checkbox.checked = true;
+      card.classList.add('selected');
+    }
   });
+  
+  // Update bulk actions bar
+  updateBulkActionsBar();
   
   // Setup drag and drop
   setupDragAndDrop();
@@ -337,7 +492,18 @@ function renderCaptures() {
 
 // Setup drag and drop for reordering
 function setupDragAndDrop() {
+  const container = document.getElementById('capturesContainer');
   const cards = document.querySelectorAll('.capture-card');
+  
+  // Add drop handler to container so it ALWAYS fires
+  container.addEventListener('dragover', (e) => {
+    e.preventDefault();
+  });
+  
+  container.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    await saveReorderedCaptures();
+  });
   
   cards.forEach(card => {
     const dragHandle = card.querySelector('.drag-handle');
@@ -349,11 +515,13 @@ function setupDragAndDrop() {
     card.addEventListener('dragstart', (e) => {
       card.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
+      draggedCardIndex = parseInt(card.getAttribute('data-index'));
     });
     
     card.addEventListener('dragend', () => {
       card.classList.remove('dragging');
       card.setAttribute('draggable', 'false');
+      draggedCardIndex = null;
     });
     
     card.addEventListener('dragover', (e) => {
@@ -375,51 +543,47 @@ function setupDragAndDrop() {
         container.appendChild(dragging);
       }
     });
-    
-    card.addEventListener('drop', async (e) => {
-      e.preventDefault();
-      await saveReorderedCaptures();
-    });
   });
 }
 
-// Save reordered captures
+// Save reordered captures - SIMPLE: each filtered view has its own order
 async function saveReorderedCaptures() {
-  const cards = document.querySelectorAll('.capture-card');
-  const newOrder = [];
+  // Get current filter context
+  const currentFilter = `${currentCaseKey}|||${currentSubject}|||${currentPlatform}`;
   
-  // Get the current filtered captures
-  const filtered = getFilteredCaptures();
-  const reversedFiltered = [...filtered].reverse();
+  // Get all cards in current DOM order (top to bottom on screen)
+  const cards = Array.from(document.querySelectorAll('.capture-card'));
   
-  // Build new order based on card positions
-  cards.forEach(card => {
-    const index = parseInt(card.getAttribute('data-index'));
-    const capture = allCaptures[index];
+  // Reverse because display is newest-first, but storage is oldest-first
+  const cardsBottomToTop = cards.reverse();
+  
+  // Assign new sort indices based on position
+  cardsBottomToTop.forEach((card, position) => {
+    const originalIndex = parseInt(card.getAttribute('data-index'));
+    const capture = allCaptures.find(c => c.originalIndex === originalIndex);
+    
     if (capture) {
-      newOrder.push(index);
+      // Initialize sortOrders object if it doesn't exist
+      if (!capture.sortOrders) {
+        capture.sortOrders = {};
+      }
+      
+      // Set sort position for this specific filter view
+      capture.sortOrders[currentFilter] = position;
     }
-  });
-  
-  // Reverse to match storage order (oldest first in array)
-  newOrder.reverse();
-  
-  // Reorder only the filtered captures in the main array
-  const reorderedFiltered = newOrder.map(idx => allCaptures[idx]);
-  
-  // Replace the filtered captures in their positions
-  reversedFiltered.forEach((oldCapture, i) => {
-    allCaptures[oldCapture.originalIndex] = reorderedFiltered[i];
   });
   
   await saveCaptures();
   showToast('✓ Order saved');
 }
 
+
 // Create capture card (v6.7 style)
 function createCaptureCard(capture, displayIndex) {
   const card = document.createElement('div');
-  card.className = 'capture-card' + (displayIndex !== 0 ? ' collapsed' : '');
+  // Apply stored collapse state
+  const isCollapsed = collapseStates[capture.originalIndex] === true;
+  card.className = isCollapsed ? 'capture-card collapsed' : 'capture-card';
   card.setAttribute('data-index', capture.originalIndex);
   
   const captureDate = new Date(capture.capturedAt);
@@ -433,13 +597,15 @@ function createCaptureCard(capture, displayIndex) {
   card.innerHTML = `
     <div class="capture-header">
       <div class="capture-header-left">
+        <input type="checkbox" class="capture-select-checkbox" data-index="${capture.originalIndex}" style="margin-right: 8px; cursor: pointer; width: 16px; height: 16px; accent-color: #2B5F6F;">
         <button class="collapse-btn">▼</button>
         <span class="drag-handle">⋮⋮</span>
         <span class="platform-badge">${platform}</span>
-        ${capture.isAboutPage ? '<span class="platform-badge" style="background: #9b59b6;">📄 About Page</span>' : ''}
+        ${capture.isAboutPage ? '<span class="platform-badge" style="background: #9b59b6;">🔗 No Link</span>' : ''}
         <span class="capture-number">Capture #${captureNumber}</span>
       </div>
       <span class="capture-time">${timeString}</span>
+      ${capture.uploadedAt ? `<span class="uploaded-badge" title="Uploaded to Sphere at ${capture.uploadedAt}">✓ Uploaded</span>` : ''}
     </div>
     
     <div class="capture-content">
@@ -459,18 +625,6 @@ function createCaptureCard(capture, displayIndex) {
             <button class="btn-save-date" data-index="${capture.originalIndex}">Save</button>
           </div>
           ${showBadge ? `<img src="${capture.dateBadge}" alt="Date badge" class="date-badge-preview">` : ''}
-        </div>
-        
-        <div class="detail-item">
-          <div class="detail-label">About Page</div>
-          <label style="display: flex; align-items: center; font-size: 11px; cursor: pointer;">
-            <input type="checkbox" 
-                   class="about-page-checkbox" 
-                   data-index="${capture.originalIndex}" 
-                   ${capture.isAboutPage ? 'checked' : ''}
-                   style="margin-right: 6px; cursor: pointer; width: 14px; height: 14px; accent-color: #9b59b6;">
-            <span>Mark as About Page</span>
-          </label>
         </div>
         
         <div class="detail-item">
@@ -499,10 +653,26 @@ function createCaptureCard(capture, displayIndex) {
   `;
   
   // Add event listeners
+  const checkbox = card.querySelector('.capture-select-checkbox');
+  checkbox.addEventListener('change', (e) => {
+    e.stopPropagation();
+    if (checkbox.checked) {
+      selectedCaptures.add(capture.originalIndex);
+      card.classList.add('selected');
+    } else {
+      selectedCaptures.delete(capture.originalIndex);
+      card.classList.remove('selected');
+    }
+    updateBulkActionsBar();
+  });
+  
   const collapseBtn = card.querySelector('.collapse-btn');
-  collapseBtn.addEventListener('click', (e) => {
+  collapseBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
     card.classList.toggle('collapsed');
+    // Save collapse state
+    collapseStates[capture.originalIndex] = card.classList.contains('collapsed');
+    await chrome.storage.local.set({ collapseStates: collapseStates });
   });
   
   const saveDateBtn = card.querySelector('.btn-save-date');
@@ -510,9 +680,6 @@ function createCaptureCard(capture, displayIndex) {
   
   const notesBtn = card.querySelector('.notes-btn');
   notesBtn.addEventListener('click', () => openNotesModal(capture.originalIndex));
-  
-  const aboutCheckbox = card.querySelector('.about-page-checkbox');
-  aboutCheckbox.addEventListener('change', (e) => toggleAboutPage(capture.originalIndex, e.target.checked));
   
   const copyBtn = card.querySelector('.copy-btn');
   copyBtn.addEventListener('click', () => copySingleCapture(capture.originalIndex));
@@ -531,18 +698,732 @@ function renderCurrentView() {
   renderCaseDropdown();
 }
 
+function updateCaseBarButtons() {
+  const editBtn = document.getElementById('editCaseMigBtn');
+  const uploadBtn = document.getElementById('uploadCaseBtn');
+  const resendBtn = document.getElementById('resendCaseBtn');
+  const clearBtn = document.getElementById('clearUploadedBtn');
+  if (!editBtn || !uploadBtn || !resendBtn || !clearBtn) return;
+
+  // Disable everything when no real case is selected.
+  if (!currentCaseKey || currentCaseKey === 'uncategorized' || currentCaseKey === '') {
+    editBtn.disabled = true;
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = '⬆ Upload to Sphere (0)';
+    resendBtn.disabled = true;
+    resendBtn.textContent = '🔄 Resend All (0)';
+    clearBtn.disabled = true;
+    clearBtn.textContent = '🗑 Clear Uploaded (0)';
+    return;
+  }
+
+  const [caseName, caseMig] = currentCaseKey.split('|||');
+
+  // Count uploaded / un-uploaded captures for this case.
+  let uploaded = 0, unuploaded = 0;
+  (allCaptures || []).forEach(c => {
+    if (c.caseName !== caseName || c.caseMIG !== caseMig) return;
+    if (c.uploadedAt) uploaded++;
+    else unuploaded++;
+  });
+
+  editBtn.disabled = false;
+
+  const total = uploaded + unuploaded;
+  uploadBtn.textContent = '⬆ Upload to Sphere (' + unuploaded + ')';
+  uploadBtn.disabled = true;  // hold disabled until async config check resolves
+  resendBtn.textContent = '🔄 Resend All (' + total + ')';
+  resendBtn.disabled = true;  // hold disabled until async config check resolves
+  chrome.storage.local.get(['sphereUrl', 'sphereToken'], (s) => {
+    const configured = !!(s.sphereUrl && s.sphereToken);
+    if (unuploaded === 0) {
+      uploadBtn.disabled = true;
+      uploadBtn.title = 'Nothing new to upload';
+    } else if (!configured) {
+      uploadBtn.disabled = true;
+      uploadBtn.title = 'Set Sphere URL + token in ⚙ Sphere Settings first.';
+    } else {
+      uploadBtn.disabled = false;
+      uploadBtn.title = '';
+    }
+
+    // Resend re-POSTs every shot in the case, so it only needs at least one
+    // capture present (it ignores the uploadedAt flags).
+    if (total === 0) {
+      resendBtn.disabled = true;
+      resendBtn.title = 'No shots in this case to resend';
+    } else if (!configured) {
+      resendBtn.disabled = true;
+      resendBtn.title = 'Set Sphere URL + token in ⚙ Sphere Settings first.';
+    } else {
+      resendBtn.disabled = false;
+      resendBtn.title = 'Re-send every shot in this case to Sphere — use only to rebuild a case that was wiped/recreated in Nexus.';
+    }
+  });
+
+  clearBtn.textContent = '🗑 Clear Uploaded (' + uploaded + ')';
+  clearBtn.disabled = uploaded === 0;
+  clearBtn.title = uploaded === 0 ? 'No uploaded captures to clear' : '';
+}
+
+async function editCaseMIG() {
+  if (!currentCaseKey || currentCaseKey === 'uncategorized') return;
+  const [caseName, oldMig] = currentCaseKey.split('|||');
+
+  const newMig = prompt('New TrackOps Case # for "' + caseName + '":', oldMig);
+  if (newMig === null) return;
+  const trimmed = newMig.trim();
+  if (!trimmed) {
+    alert('Case # cannot be empty.');
+    return;
+  }
+  if (trimmed === oldMig) return;
+
+  const { cases, captures, currentCase } = await chrome.storage.local.get(
+    ['cases', 'captures', 'currentCase']
+  );
+
+  (cases || []).forEach(c => {
+    if (c.name === caseName && c.mig === oldMig) c.mig = trimmed;
+  });
+
+  let rewritten = 0;
+  (captures || []).forEach(cap => {
+    if (cap.caseName === caseName && cap.caseMIG === oldMig) {
+      cap.caseMIG = trimmed;
+      rewritten++;
+    }
+  });
+
+  if (currentCase && currentCase.name === caseName && currentCase.mig === oldMig) {
+    currentCase.mig = trimmed;
+  }
+
+  await chrome.storage.local.set({ cases, captures, currentCase });
+  alert('Updated. Rewrote ' + rewritten + ' capture(s).');
+  location.reload();
+}
+
+async function clearUploadedForCase() {
+  if (!currentCaseKey || currentCaseKey === 'uncategorized') return;
+  const [caseName, caseMig] = currentCaseKey.split('|||');
+
+  if (!confirm('Delete all uploaded captures for "' + caseName + '" (' + caseMig + ') from local storage? This cannot be undone.')) return;
+
+  const { captures } = await chrome.storage.local.get(['captures']);
+  const kept = (captures || []).filter(c =>
+    !(c.caseName === caseName && c.caseMIG === caseMig && c.uploadedAt)
+  );
+  await chrome.storage.local.set({ captures: kept });
+  location.reload();
+}
+
+function showUploadSummary(caseName, okCount, failures) {
+  const old = document.getElementById('sphereUploadSummary');
+  if (old) old.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'sphereUploadSummary';
+  Object.assign(overlay.style, {
+    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+    background: 'rgba(0,0,0,0.5)', zIndex: 9999,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  });
+
+  const box = document.createElement('div');
+  Object.assign(box.style, {
+    background: 'white', borderRadius: '8px', padding: '20px',
+    width: '480px', maxHeight: '70vh', overflowY: 'auto',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+    fontFamily: '-apple-system, sans-serif',
+  });
+
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:16px; font-weight:600; color:#2B5F6F; margin-bottom:12px;';
+  title.textContent = 'Upload Complete: ' + caseName;
+  box.appendChild(title);
+
+  const summary = document.createElement('div');
+  summary.style.cssText = 'font-size:13px; margin-bottom:14px;';
+  summary.innerHTML = '<span style="color:#155724;">✓ ' + okCount + ' uploaded</span>'
+                    + (failures.length ? '<br><span style="color:#c0392b;">✗ ' + failures.length + ' failed</span>' : '');
+  box.appendChild(summary);
+
+  if (failures.length) {
+    const list = document.createElement('ul');
+    list.style.cssText = 'font-size:11px; color:#c0392b; padding-left:18px; margin:0 0 14px;';
+    failures.forEach(f => {
+      const li = document.createElement('li');
+      const statusLabel = f.status === 0 ? 'Network error' : ('HTTP ' + f.status);
+      li.textContent = statusLabel + ': ' + (f.msg || '').slice(0, 200);
+      list.appendChild(li);
+    });
+    box.appendChild(list);
+  }
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.textContent = 'Close';
+  Object.assign(closeBtn.style, {
+    padding: '8px 18px',
+    background: 'linear-gradient(135deg, #2B5F6F 0%, #1a3d48 100%)',
+    color: 'white', border: 'none', borderRadius: '5px',
+    fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+  });
+  closeBtn.addEventListener('click', () => {
+    overlay.remove();
+    // Refresh the active view so the new badges + counts show up.
+    loadData().then(() => {
+      renderCaptures();
+      updateCaseBarButtons();
+    });
+  });
+  box.appendChild(closeBtn);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+
+// Shared POST loop for both ⬆ Upload (new shots only) and 🔄 Resend All
+// (every shot). `targets` is an array of { c, idx } into `all`. `progressBtn`
+// gets the running "N/M…" label; all sibling case-bar buttons are locked for
+// the duration because ✏️ and 🗑 both call location.reload(), which would
+// corrupt the captures array we're mid-mutating.
+async function sendCaseCapturesToSphere({ caseName, caseMig, sphereUrl, sphereToken, all, targets, progressBtn, progressLabel }) {
+  const uploadBtn = document.getElementById('uploadCaseBtn');
+  const editBtn = document.getElementById('editCaseMigBtn');
+  const clearBtn = document.getElementById('clearUploadedBtn');
+  const resendBtn = document.getElementById('resendCaseBtn');
+
+  [uploadBtn, editBtn, clearBtn, resendBtn].forEach(b => { if (b) b.disabled = true; });
+  if (progressBtn) progressBtn.textContent = progressLabel + '0/' + targets.length + '…';
+
+  let ok = 0;
+  const failed = [];
+
+  try {
+    for (let i = 0; i < targets.length; i++) {
+      const { c, idx } = targets[i];
+      try {
+        const res = await fetch(sphereUrl + '/api/captures', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + sphereToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            case_number:   caseMig,
+            subject_name:  c.subjectName || '',
+            screenshot:    c.screenshot || '',
+            url:           c.url || '',
+            platform:      (function () {
+                              // accountIdentifier defaults to '1' (the only/first account on this platform).
+                              // Send just the platform name in that case; append the identifier only when
+                              // the analyst has multiple accounts (e.g. "Facebook 2", "Facebook 3").
+                              const p = c.platform || 'Other';
+                              const acct = c.accountIdentifier || '1';
+                              return acct === '1' ? p : (p + ' ' + acct);
+                            })(),
+            captured_at:   c.capturedAt || '',
+            posted_at:     c.date || '',
+            is_about_page: !!c.isAboutPage,
+            notes:         c.notes || '',
+          }),
+        });
+
+        if (res.ok) {
+          const body = await res.json().catch(() => ({}));
+          all[idx].uploadedAt = new Date().toISOString();
+          all[idx].serverCaptureId = body.capture_id || null;
+          await chrome.storage.local.set({ captures: all });
+          // Mirror into the in-memory copy by originalIndex (array positions
+          // in allCaptures can diverge from storage order after drag-reorder).
+          const inMem = allCaptures.find(ac => ac.originalIndex === c.originalIndex);
+          if (inMem) {
+            inMem.uploadedAt = all[idx].uploadedAt;
+            inMem.serverCaptureId = all[idx].serverCaptureId;
+          }
+          ok++;
+        } else {
+          // status field already carries res.status — msg should only hold body text.
+          const msg = await res.text().catch(() => '');
+          failed.push({ idx, status: res.status, msg });
+        }
+      } catch (e) {
+        failed.push({ idx, status: 0, msg: e.message });
+      }
+      if (progressBtn) {
+        progressBtn.textContent = progressLabel + (i + 1) + '/' + targets.length + '…';
+      }
+    }
+  } finally {
+    // Always restore button state, even if an exception escapes the loop.
+    updateCaseBarButtons();
+  }
+
+  showUploadSummary(caseName, ok, failed);
+}
+
+async function uploadCaseToSphere() {
+  if (!currentCaseKey || currentCaseKey === 'uncategorized') return;
+  const [caseName, caseMig] = currentCaseKey.split('|||');
+
+  const { sphereUrl, sphereToken, captures } = await chrome.storage.local.get(
+    ['sphereUrl', 'sphereToken', 'captures']
+  );
+
+  if (!sphereUrl || !sphereToken) {
+    alert('Set Sphere URL + token in ⚙ Sphere Settings first.');
+    return;
+  }
+
+  const all = captures || [];
+  const targets = [];
+  all.forEach((c, idx) => {
+    if (c.caseName === caseName && c.caseMIG === caseMig && !c.uploadedAt) {
+      targets.push({ c, idx });
+    }
+  });
+
+  if (targets.length === 0) {
+    alert('Nothing to upload — all captures for this case are already uploaded.');
+    return;
+  }
+
+  await sendCaseCapturesToSphere({
+    caseName, caseMig, sphereUrl, sphereToken, all, targets,
+    progressBtn: document.getElementById('uploadCaseBtn'),
+    progressLabel: 'Uploading ',
+  });
+}
+
+// Force-resend EVERY shot in the case, including ones already marked uploaded.
+// For rebuilding a Nexus case that was wiped/recreated server-side, where the
+// local uploadedAt flags would otherwise suppress a normal upload.
+async function resendCaseToSphere() {
+  if (!currentCaseKey || currentCaseKey === 'uncategorized') return;
+  const [caseName, caseMig] = currentCaseKey.split('|||');
+
+  const { sphereUrl, sphereToken, captures } = await chrome.storage.local.get(
+    ['sphereUrl', 'sphereToken', 'captures']
+  );
+
+  if (!sphereUrl || !sphereToken) {
+    alert('Set Sphere URL + token in ⚙ Sphere Settings first.');
+    return;
+  }
+
+  const all = captures || [];
+  const targets = [];
+  all.forEach((c, idx) => {
+    if (c.caseName === caseName && c.caseMIG === caseMig) {
+      targets.push({ c, idx });
+    }
+  });
+
+  if (targets.length === 0) {
+    alert('No captures in this case to resend.');
+    return;
+  }
+
+  if (!confirm(
+    'Resend ALL ' + targets.length + ' shot(s) for "' + caseName + '" (' + caseMig + ') to Sphere?\n\n' +
+    'This re-POSTs every shot, including ones already marked uploaded. ' +
+    'Use it only to rebuild a case that was wiped or recreated in Nexus.'
+  )) return;
+
+  await sendCaseCapturesToSphere({
+    caseName, caseMig, sphereUrl, sphereToken, all, targets,
+    progressBtn: document.getElementById('resendCaseBtn'),
+    progressLabel: 'Resending ',
+  });
+}
+
 // Setup event listeners
 function setupEventListeners() {
   // Case dropdown change
   document.getElementById('caseDropdown').addEventListener('change', (e) => {
     currentCaseKey = e.target.value;
     currentSubject = null;
-    currentPlatform = 'all';
+    currentPlatform = null; // Will be set to first platform when rendering tabs
     renderSubjectTabs();
+    updateCaseBarButtons();
   });
   
   // Clear All button
   document.getElementById('clearAllBtn').addEventListener('click', clearAll);
+  
+  // Delete Case button
+  document.getElementById('deleteCaseBtn').addEventListener('click', deleteCurrentCase);
+  
+  // Collapse/Expand All button
+  document.getElementById('toggleCollapseBtn').addEventListener('click', toggleCollapseAll);
+
+  // Sphere Settings button
+  document.getElementById('sphereSettingsBtn')?.addEventListener('click', () => {
+    chrome.runtime.openOptionsPage();
+  });
+
+  // Sphere case-bar buttons
+  document.getElementById('editCaseMigBtn')?.addEventListener('click', editCaseMIG);
+  document.getElementById('uploadCaseBtn')?.addEventListener('click', uploadCaseToSphere);
+  document.getElementById('resendCaseBtn')?.addEventListener('click', resendCaseToSphere);
+  document.getElementById('clearUploadedBtn')?.addEventListener('click', clearUploadedForCase);
+  
+  // Bulk actions
+  document.getElementById('selectAllCheckbox').addEventListener('change', (e) => {
+    if (e.target.checked) {
+      selectAllCaptures();
+    } else {
+      deselectAllCaptures();
+    }
+  });
+  
+  document.getElementById('bulkMoveBtn').addEventListener('click', () => {
+    if (selectedCaptures.size > 0) {
+      openBulkMoveModal();
+    }
+  });
+  
+  document.getElementById('bulkNoLinkBtn').addEventListener('click', () => {
+    if (selectedCaptures.size > 0) {
+      handleBulkNoLink();
+    }
+  });
+  
+  document.getElementById('deselectAllBtn').addEventListener('click', deselectAllCaptures);
+}
+
+// Update bulk actions bar visibility and count
+function updateBulkActionsBar() {
+  const bar = document.getElementById('bulkActionsBar');
+  const count = document.getElementById('selectedCount');
+  const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+  const noLinkBtn = document.getElementById('bulkNoLinkBtn');
+  
+  if (selectedCaptures.size > 0) {
+    bar.classList.remove('hidden');
+    count.textContent = `${selectedCaptures.size} selected`;
+    
+    // Update select all checkbox state
+    const filtered = getFilteredCaptures();
+    selectAllCheckbox.checked = selectedCaptures.size === filtered.length;
+    
+    // Check if all selected captures are marked as No Link
+    let allMarkedAsNoLink = true;
+    let anyMarkedAsNoLink = false;
+    
+    selectedCaptures.forEach(index => {
+      const capture = findCaptureByIndex(index);
+      if (capture && capture.isAboutPage) {
+        anyMarkedAsNoLink = true;
+      } else {
+        allMarkedAsNoLink = false;
+      }
+    });
+    
+    // Update button based on selection state
+    if (allMarkedAsNoLink) {
+      noLinkBtn.textContent = '🔗 Unmark as No Link';
+      noLinkBtn.style.background = '#6c757d';
+    } else {
+      noLinkBtn.textContent = '🔗 Mark as No Link';
+      noLinkBtn.style.background = '#9b59b6';
+    }
+  } else {
+    bar.classList.add('hidden');
+    selectAllCheckbox.checked = false;
+  }
+}
+
+// Select all captures in current view
+function selectAllCaptures() {
+  const filtered = getFilteredCaptures();
+  filtered.forEach(capture => {
+    selectedCaptures.add(capture.originalIndex);
+  });
+  
+  // Update UI
+  document.querySelectorAll('.capture-select-checkbox').forEach(checkbox => {
+    checkbox.checked = true;
+    checkbox.closest('.capture-card').classList.add('selected');
+  });
+  
+  updateBulkActionsBar();
+}
+
+// Deselect all captures
+function deselectAllCaptures() {
+  selectedCaptures.clear();
+  
+  // Update UI
+  document.querySelectorAll('.capture-select-checkbox').forEach(checkbox => {
+    checkbox.checked = false;
+    checkbox.closest('.capture-card').classList.remove('selected');
+  });
+  
+  updateBulkActionsBar();
+}
+
+// Toggle collapse/expand all captures
+async function toggleCollapseAll() {
+  const cards = document.querySelectorAll('.capture-card');
+  const btn = document.getElementById('toggleCollapseBtn');
+  
+  if (cards.length === 0) return;
+  
+  // Check if ANY card is expanded (not collapsed)
+  let anyExpanded = false;
+  cards.forEach(card => {
+    if (!card.classList.contains('collapsed')) {
+      anyExpanded = true;
+    }
+  });
+  
+  // If any are expanded, collapse all. If all are collapsed, expand all.
+  const shouldCollapse = anyExpanded;
+  
+  // Apply state to all cards
+  cards.forEach(card => {
+    const index = parseInt(card.getAttribute('data-index'));
+    if (shouldCollapse) {
+      card.classList.add('collapsed');
+      collapseStates[index] = true;
+    } else {
+      card.classList.remove('collapsed');
+      collapseStates[index] = false;
+    }
+  });
+  
+  // Update button text
+  btn.textContent = shouldCollapse ? '📋 Expand All' : '📋 Collapse All';
+  
+  // Save collapse states
+  await chrome.storage.local.set({ collapseStates });
+}
+
+// Open bulk move modal
+function openBulkMoveModal() {
+  if (selectedCaptures.size === 0) return;
+  
+  // Get all selected captures - filter out any undefined ones
+  const selectedCapturesArray = Array.from(selectedCaptures)
+    .map(index => findCaptureByIndex(index))
+    .filter(c => c !== undefined && c !== null);
+  
+  // Check if we have any valid captures
+  if (selectedCapturesArray.length === 0) {
+    showToast('⚠️ No valid captures selected', 'error');
+    selectedCaptures.clear();
+    updateBulkActionsBar();
+    return;
+  }
+  
+  const platforms = new Set(selectedCapturesArray.map(c => c.platform));
+  
+  // Validation: all must be from same platform
+  if (platforms.size > 1) {
+    showToast('⚠️ Cannot move captures from different platforms together', 'error');
+    return;
+  }
+  
+  // Get platform from selected captures (all same now)
+  const platform = selectedCapturesArray[0].platform || 'Other';
+  const firstCapture = selectedCapturesArray[0];
+  
+  // Validation: all must have same case/subject
+  const cases = new Set(selectedCapturesArray.map(c => c.caseName));
+  const subjects = new Set(selectedCapturesArray.map(c => c.subjectName));
+  
+  if (cases.size > 1 || subjects.size > 1) {
+    showToast('⚠️ All captures must be from the same case and subject', 'error');
+    return;
+  }
+  
+  // Get all accounts for this platform/subject
+  const organized = organizeCaptures();
+  const accounts = new Set();
+  
+  if (firstCapture.caseName && firstCapture.caseMIG && firstCapture.subjectName) {
+    const caseKey = `${firstCapture.caseName}|||${firstCapture.caseMIG}`;
+    const caseData = organized.cases[caseKey];
+    
+    if (caseData && caseData.subjects[firstCapture.subjectName]) {
+      Object.keys(caseData.subjects[firstCapture.subjectName]).forEach(platformAccount => {
+        const [plat, account] = platformAccount.split('|||');
+        if (plat === platform) {
+          accounts.add(account);
+        }
+      });
+    }
+  }
+  
+  // Sort accounts
+  const sortedAccounts = Array.from(accounts).sort((a, b) => {
+    const aNum = parseInt(a);
+    const bNum = parseInt(b);
+    if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
+    if (!isNaN(aNum)) return -1;
+    if (!isNaN(bNum)) return 1;
+    return a.localeCompare(b);
+  });
+  
+  // Calculate next account number
+  const numericAccounts = sortedAccounts.filter(a => !isNaN(a)).map(a => parseInt(a));
+  let nextNumber = 1;
+  while (numericAccounts.includes(nextNumber)) {
+    nextNumber++;
+  }
+  const nextAccountId = nextNumber.toString();
+  const nextDisplayName = nextNumber === 1 ? platform : `${platform} ${nextNumber}`;
+  
+  // Build account list HTML
+  let accountListHTML = '';
+  sortedAccounts.forEach(account => {
+    const displayName = account === '1' ? platform : `${platform} ${account}`;
+    accountListHTML += `
+      <div class="account-option" data-account="${account}">
+        ${displayName}
+      </div>
+    `;
+  });
+  
+  // Create modal
+  const modal = document.createElement('div');
+  modal.className = 'notes-modal';
+  modal.innerHTML = `
+    <div class="notes-modal-content" style="max-width: 500px; min-width: 400px;">
+      <div class="notes-modal-header">
+        <div class="notes-modal-title">Move ${selectedCaptures.size} ${platform} Capture${selectedCaptures.size !== 1 ? 's' : ''}</div>
+        <button class="notes-modal-close">×</button>
+      </div>
+      <div style="margin-bottom: 16px; font-size: 14px; color: #666;">
+        Select destination account:
+      </div>
+      <div class="account-list">
+        ${accountListHTML}
+      </div>
+      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #e0e0e0;">
+        <button id="bulkMakeNewBtn" class="btn btn-primary" data-account="${nextAccountId}" style="width: 100%; padding: 12px;">
+          ➕ Make New (${nextDisplayName})
+        </button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  // Close handlers
+  const closeModal = () => {
+    modal.remove();
+  };
+  
+  modal.querySelector('.notes-modal-close').addEventListener('click', closeModal);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+  
+  // Account selection handlers
+  modal.querySelectorAll('.account-option').forEach(option => {
+    option.addEventListener('click', async () => {
+      const newAccountId = option.getAttribute('data-account');
+      closeModal();
+      await handleBulkAccountChange(newAccountId);
+    });
+  });
+  
+  // Make New button handler
+  const makeNewBtn = modal.querySelector('#bulkMakeNewBtn');
+  makeNewBtn.addEventListener('click', async () => {
+    const newAccountId = makeNewBtn.getAttribute('data-account');
+    closeModal();
+    await handleBulkAccountChange(newAccountId);
+  });
+  
+  // Escape key to close
+  const escHandler = (e) => {
+    if (e.key === 'Escape') {
+      closeModal();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
+}
+
+// Handle bulk account change
+async function handleBulkAccountChange(newAccountId) {
+  const count = selectedCaptures.size;
+  
+  // Update all selected captures
+  selectedCaptures.forEach(index => {
+    const capture = findCaptureByIndex(index);
+    if (capture) {
+      capture.accountIdentifier = newAccountId;
+      // IMPORTANT: Clear sortOrders since captures are moving to a new filter view
+      capture.sortOrders = {};
+    }
+  });
+  
+  await saveCaptures();
+  
+  // Clear selection
+  selectedCaptures.clear();
+  
+  // Save filter state before reload
+  saveFilterState();
+  
+  // Refresh
+  showToast(`✓ Moved ${count} capture${count !== 1 ? 's' : ''} - refreshing...`);
+  setTimeout(() => {
+    location.reload();
+  }, 800);
+}
+
+// Handle bulk mark/unmark as No Link
+async function handleBulkNoLink() {
+  const count = selectedCaptures.size;
+  
+  // Check if all selected are marked as No Link
+  let allMarkedAsNoLink = true;
+  let validCount = 0;
+  
+  selectedCaptures.forEach(index => {
+    const capture = findCaptureByIndex(index);
+    if (capture) {
+      validCount++;
+      if (!capture.isAboutPage) {
+        allMarkedAsNoLink = false;
+      }
+    }
+  });
+  
+  // If no valid captures, clear selection and return
+  if (validCount === 0) {
+    selectedCaptures.clear();
+    updateBulkActionsBar();
+    showToast('⚠️ No valid captures selected', 'error');
+    return;
+  }
+  
+  // Toggle: if all marked, unmark them; otherwise mark them
+  const newState = !allMarkedAsNoLink;
+  
+  selectedCaptures.forEach(index => {
+    const capture = findCaptureByIndex(index);
+    if (capture) {
+      capture.isAboutPage = newState;
+    }
+  });
+  
+  await saveCaptures();
+  
+  // Clear selection
+  selectedCaptures.clear();
+  
+  // Refresh to update UI
+  const action = newState ? 'Marked' : 'Unmarked';
+  showToast(`✓ ${action} ${validCount} capture${validCount !== 1 ? 's' : ''} as No Link`);
+  renderCaptures();
 }
 
 // Save date
@@ -573,8 +1454,12 @@ async function saveDate(index) {
     return;
   }
   
+  // Find capture once
+  const capture = findCaptureByIndex(index);
+  if (!capture) return;
+  
   // Update capture
-  allCaptures[index].date = dateStr;
+  capture.date = dateStr;
   
   // Generate date badge only if current year
   if (isCurrentYear(dateStr)) {
@@ -582,9 +1467,9 @@ async function saveDate(index) {
       action: 'generateDateBadge', 
       date: dateStr 
     });
-    allCaptures[index].dateBadge = response.dateBadge;
+    capture.dateBadge = response.dateBadge;
   } else {
-    allCaptures[index].dateBadge = null;
+    capture.dateBadge = null;
   }
   
   await saveCaptures();
@@ -597,14 +1482,17 @@ async function saveNotes(index) {
   const textarea = document.querySelector(`textarea.notes-textarea[data-index="${index}"]`);
   const notes = textarea.value.trim();
   
-  allCaptures[index].notes = notes;
+  const capture = findCaptureByIndex(index);
+  if (!capture) return;
+  
+  capture.notes = notes;
   await saveCaptures();
   showToast('✓ Notes saved');
 }
 
 // Open notes modal
 function openNotesModal(index) {
-  const capture = allCaptures[index];
+  const capture = findCaptureByIndex(index);
   if (!capture) return;
   
   const hasNotes = capture.notes && capture.notes.trim() !== '';
@@ -656,9 +1544,9 @@ function openNotesModal(index) {
     const notes = textarea.value.trim();
     const checkbox = modal.querySelector('.include-notes-checkbox');
     
-    allCaptures[index].notes = notes;
+    findCaptureByIndex(index).notes = notes;
     // If notes exist, save the checkbox state. If empty notes, set to false.
-    allCaptures[index].includeNotesWhenCopying = notes ? checkbox.checked : false;
+    findCaptureByIndex(index).includeNotesWhenCopying = notes ? checkbox.checked : false;
     
     await saveCaptures();
     showToast('✓ Notes saved');
@@ -678,15 +1566,15 @@ function openNotesModal(index) {
 
 // Toggle about page
 async function toggleAboutPage(index, isAboutPage) {
-  allCaptures[index].isAboutPage = isAboutPage;
+  findCaptureByIndex(index).isAboutPage = isAboutPage;
   await saveCaptures();
   renderCaptures();
-  showToast(isAboutPage ? '✓ Marked as About Page' : '✓ Unmarked as About Page');
+  showToast(isAboutPage ? '✓ Marked as No Link' : '✓ Unmarked as No Link');
 }
 
 // Open editor
 function openEditor(index) {
-  const capture = allCaptures[index];
+  const capture = findCaptureByIndex(index);
   if (!capture) return;
   
   chrome.tabs.create({ url: chrome.runtime.getURL(`editor.html?index=${index}`) });
@@ -696,11 +1584,136 @@ function openEditor(index) {
 async function deleteCapture(index) {
   if (!confirm('Delete this capture?')) return;
   
-  allCaptures.splice(index, 1);
-  await saveCaptures();
-  await loadData();
-  renderCurrentView();
-  showToast('✓ Deleted');
+  // Find the capture by originalIndex
+  const capture = findCaptureByIndex(index);
+  if (!capture) {
+    showToast('⚠️ Capture not found', 'error');
+    return;
+  }
+  
+  // Find its actual position in the array and delete it
+  const arrayIndex = allCaptures.findIndex(c => c.originalIndex === index);
+  if (arrayIndex !== -1) {
+    allCaptures.splice(arrayIndex, 1);
+    await saveCaptures();
+    showToast('✓ Deleted - refreshing...');
+    
+    // Save filter state before reload
+    saveFilterState();
+    
+    // Refresh the page after a short delay
+    setTimeout(() => {
+      location.reload();
+    }, 800);
+  } else {
+    showToast('⚠️ Could not delete capture', 'error');
+  }
+}
+
+// Delete current case
+async function deleteCurrentCase() {
+  // Check if a case is selected
+  if (!currentCaseKey || currentCaseKey === 'uncategorized') {
+    showToast('⚠️ No case selected to delete', 'error');
+    return;
+  }
+  
+  // Parse case key to get name and MIG
+  const [caseName, caseMIG] = currentCaseKey.split('|||');
+  
+  // Count captures in this case
+  const caseCaptures = allCaptures.filter(c => 
+    c.caseName === caseName && c.caseMIG === caseMIG
+  );
+  
+  if (caseCaptures.length === 0) {
+    showToast('⚠️ Case has no captures to delete', 'error');
+    return;
+  }
+  
+  // Create confirmation modal
+  const modal = document.createElement('div');
+  modal.className = 'notes-modal';
+  modal.innerHTML = `
+    <div class="notes-modal-content" style="max-width: 500px;">
+      <div class="notes-modal-header">
+        <div class="notes-modal-title">⚠️ Delete Case</div>
+        <button class="notes-modal-close">×</button>
+      </div>
+      <div style="margin-bottom: 20px; color: #555; font-size: 14px; line-height: 1.6;">
+        <p style="margin-bottom: 12px;">
+          Delete case <strong>${caseName} (${caseMIG})</strong>?
+        </p>
+        <p style="margin-bottom: 12px;">
+          This will delete <strong>${caseCaptures.length} capture${caseCaptures.length !== 1 ? 's' : ''}</strong> from this case.
+        </p>
+        <p style="color: #e74c3c; font-weight: 600;">
+          This action cannot be undone!
+        </p>
+      </div>
+      <div class="notes-modal-actions">
+        <button class="btn btn-danger" id="confirmDeleteCase">Delete Case</button>
+        <button class="btn btn-primary" id="cancelDeleteCase">Cancel</button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  // Close handlers
+  const closeModal = () => {
+    modal.remove();
+  };
+  
+  modal.querySelector('.notes-modal-close').addEventListener('click', closeModal);
+  modal.querySelector('#cancelDeleteCase').addEventListener('click', closeModal);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+  
+  // Delete handler
+  modal.querySelector('#confirmDeleteCase').addEventListener('click', async () => {
+    modal.remove();
+    
+    // Filter out all captures from this case
+    allCaptures = allCaptures.filter(c => 
+      !(c.caseName === caseName && c.caseMIG === caseMIG)
+    );
+    
+    // Remove case from cases list
+    allCases = allCases.filter(c => 
+      !(c.name === caseName && c.mig === caseMIG)
+    );
+    
+    // Save updated data
+    await chrome.storage.local.set({ 
+      captures: allCaptures,
+      cases: allCases
+    });
+    
+    // Check if this was the current case in storage
+    const storageResult = await chrome.storage.local.get(['currentCase']);
+    const storedCase = storageResult.currentCase;
+    if (storedCase && storedCase.name === caseName && storedCase.mig === caseMIG) {
+      await chrome.storage.local.remove('currentCase');
+    }
+    
+    showToast('✓ Case deleted - refreshing...');
+    
+    // Refresh the page after a short delay
+    setTimeout(() => {
+      location.reload();
+    }, 1000);
+  });
+  
+  // Escape key to close
+  const escHandler = (e) => {
+    if (e.key === 'Escape') {
+      closeModal();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
 }
 
 // Clear all captures
@@ -710,20 +1723,92 @@ async function clearAll() {
     return;
   }
   
-  if (!confirm(`Delete all ${allCaptures.length} captures? This cannot be undone!`)) {
-    return;
-  }
+  // Check if user wants to skip warnings
+  const result = await chrome.storage.local.get(['skipClearWarning']);
+  const skipWarning = result.skipClearWarning || false;
   
-  allCaptures = [];
-  await saveCaptures();
-  await loadData();
-  renderCaseDropdown();
-  showToast('✓ Archive cleared');
+  if (!skipWarning) {
+    // Create custom confirmation modal
+    const modal = document.createElement('div');
+    modal.className = 'notes-modal';
+    modal.innerHTML = `
+      <div class="notes-modal-content" style="max-width: 500px;">
+        <div class="notes-modal-header">
+          <div class="notes-modal-title">⚠️ Wipe Archive</div>
+          <button class="notes-modal-close">×</button>
+        </div>
+        <div style="margin-bottom: 20px; color: #555; font-size: 14px; line-height: 1.6;">
+          <p style="margin-bottom: 12px;">
+            This will <strong>delete all ${allCaptures.length} captures</strong> and <strong>erase all Cases</strong>.
+          </p>
+          <p style="color: #e74c3c; font-weight: 600;">
+            This action cannot be undone!
+          </p>
+        </div>
+        <div class="copy-option" style="margin-bottom: 20px;">
+          <input type="checkbox" id="dontWarnAgain">
+          <label for="dontWarnAgain">Don't warn me again</label>
+        </div>
+        <div class="notes-modal-actions">
+          <button class="btn btn-danger">Wipe Archive</button>
+          <button class="btn btn-primary">Cancel</button>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Return a promise to handle the user's choice
+    return new Promise((resolve) => {
+      const closeModal = () => {
+        modal.remove();
+        resolve(false);
+      };
+      
+      modal.querySelector('.notes-modal-close').addEventListener('click', closeModal);
+      modal.querySelector('.btn-primary').addEventListener('click', closeModal);
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+      });
+      
+      modal.querySelector('.btn-danger').addEventListener('click', async () => {
+        const dontWarn = modal.querySelector('#dontWarnAgain').checked;
+        if (dontWarn) {
+          await chrome.storage.local.set({ skipClearWarning: true });
+        }
+        modal.remove();
+        
+        // Actually clear the data - including currentCase
+        allCaptures = [];
+        allCases = [];
+        await chrome.storage.local.set({ captures: [], cases: [] });
+        await chrome.storage.local.remove('currentCase');
+        showToast('✓ Archive cleared - refreshing...');
+        
+        // Refresh the page after a short delay
+        setTimeout(() => {
+          location.reload();
+        }, 1000);
+      });
+    });
+  } else {
+    // Skip warning, clear directly - including currentCase
+    allCaptures = [];
+    allCases = [];
+    await chrome.storage.local.set({ captures: [], cases: [] });
+    await chrome.storage.local.remove('currentCase');
+    showToast('✓ Archive cleared - refreshing...');
+    
+    // Refresh the page after a short delay
+    setTimeout(() => {
+      location.reload();
+    }, 1000);
+  }
 }
 
 // Copy single capture
 async function copySingleCapture(index) {
-  const capture = allCaptures[index];
+  const capture = findCaptureByIndex(index);
   if (!capture) return;
   
   try {
@@ -747,13 +1832,13 @@ async function copySingleCapture(index) {
     
     // Add notes if enabled and notes exist
     if (includeNotes && capture.notes && capture.notes.trim()) {
-      html += `<p style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-left: 3px solid #2B5F6F; font-size: 13px;"><strong>Notes:</strong> ${capture.notes}</p>`;
+      html += `<p style="margin: 10px 0;">${capture.notes}</p>`;
     }
     
     // Plain text version
     let text = capture.isAboutPage ? '' : capture.url;
     if (includeNotes && capture.notes && capture.notes.trim()) {
-      text += (text ? '\n\n' : '') + 'Notes: ' + capture.notes;
+      text += (text ? '\n\n' : '') + capture.notes;
     }
     
     const htmlBlob = new Blob([html], { type: 'text/html' });
@@ -785,10 +1870,8 @@ async function copyAllCurrentView() {
   }
   
   try {
-    // Reverse so oldest is first when pasted
-    const reversed = [...filtered].reverse();
-    
-    const htmlParts = reversed.map(capture => {
+    // Use filtered as-is - already in chronological order (oldest first)
+    const htmlParts = filtered.map(capture => {
       const showBadge = capture.date && isCurrentYear(capture.date);
       const includeNotes = capture.includeNotesWhenCopying === true;
       
@@ -804,7 +1887,7 @@ async function copyAllCurrentView() {
       
       // Add notes if enabled and notes exist
       if (includeNotes && capture.notes && capture.notes.trim()) {
-        html += `<p style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-left: 3px solid #2B5F6F; font-size: 13px;"><strong>Notes:</strong> ${capture.notes}</p>`;
+        html += `<p style="margin: 10px 0;">${capture.notes}</p>`;
       }
       
       html += `<p style="margin: 20px 0;"></p>`;
@@ -814,12 +1897,12 @@ async function copyAllCurrentView() {
     
     const html = htmlParts.join('\n');
     
-    const textParts = reversed.map(capture => {
+    const textParts = filtered.map(capture => {
       const includeNotes = capture.includeNotesWhenCopying === true;
       
       let text = capture.isAboutPage ? '' : capture.url;
       if (includeNotes && capture.notes && capture.notes.trim()) {
-        text += (text ? '\n\n' : '') + 'Notes: ' + capture.notes;
+        text += (text ? '\n\n' : '') + capture.notes;
       }
       return text;
     }).filter(t => t);
@@ -843,6 +1926,157 @@ async function copyAllCurrentView() {
   }
 }
 
+// Open move account modal
+function openMoveAccountModal(index) {
+  const capture = findCaptureByIndex(index);
+  if (!capture) return;
+  
+  const platform = capture.platform || 'Other';
+  const currentAccount = capture.accountIdentifier || '1';
+  
+  // Get all accounts for this platform/subject
+  const organized = organizeCaptures();
+  const accounts = new Set();
+  
+  if (capture.caseName && capture.caseMIG && capture.subjectName) {
+    const caseKey = `${capture.caseName}|||${capture.caseMIG}`;
+    const caseData = organized.cases[caseKey];
+    
+    if (caseData && caseData.subjects[capture.subjectName]) {
+      // Find all platform/account combinations for this subject
+      Object.keys(caseData.subjects[capture.subjectName]).forEach(platformAccount => {
+        const [plat, account] = platformAccount.split('|||');
+        if (plat === platform) {
+          accounts.add(account);
+        }
+      });
+    }
+  }
+  
+  // Always include current account
+  accounts.add(currentAccount);
+  
+  // Sort accounts (numbers first, then alphanumeric)
+  const sortedAccounts = Array.from(accounts).sort((a, b) => {
+    const aNum = parseInt(a);
+    const bNum = parseInt(b);
+    if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
+    if (!isNaN(aNum)) return -1;
+    if (!isNaN(bNum)) return 1;
+    return a.localeCompare(b);
+  });
+  
+  // Calculate next account number
+  const numericAccounts = sortedAccounts.filter(a => !isNaN(a)).map(a => parseInt(a));
+  let nextNumber = 1;
+  while (numericAccounts.includes(nextNumber)) {
+    nextNumber++;
+  }
+  const nextAccountId = nextNumber.toString();
+  const nextDisplayName = nextNumber === 1 ? platform : `${platform} ${nextNumber}`;
+  
+  // Build account list HTML
+  let accountListHTML = '';
+  sortedAccounts.forEach(account => {
+    const displayName = account === '1' ? platform : `${platform} ${account}`;
+    const isCurrent = account === currentAccount;
+    accountListHTML += `
+      <div class="account-option ${isCurrent ? 'current' : ''}" data-account="${account}">
+        ${displayName} ${isCurrent ? '<span style="color: #9B9565; font-weight: bold;">(Current)</span>' : ''}
+      </div>
+    `;
+  });
+  
+  // Create modal
+  const modal = document.createElement('div');
+  modal.className = 'notes-modal';
+  modal.innerHTML = `
+    <div class="notes-modal-content" style="max-width: 500px; min-width: 400px;">
+      <div class="notes-modal-header">
+        <div class="notes-modal-title">Move to Account</div>
+        <button class="notes-modal-close">×</button>
+      </div>
+      <div style="margin-bottom: 16px; font-size: 14px; color: #666;">
+        Select an existing account or create a new one:
+      </div>
+      <div class="account-list">
+        ${accountListHTML}
+      </div>
+      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #e0e0e0;">
+        <button id="makeNewBtn" class="btn btn-primary" data-account="${nextAccountId}" style="width: 100%; padding: 12px;">
+          ➕ Make New (${nextDisplayName})
+        </button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  // Close handlers
+  const closeModal = () => {
+    modal.remove();
+  };
+  
+  modal.querySelector('.notes-modal-close').addEventListener('click', closeModal);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+  
+  // Account selection handlers for existing accounts
+  modal.querySelectorAll('.account-option').forEach(option => {
+    option.addEventListener('click', async () => {
+      const newAccountId = option.getAttribute('data-account');
+      if (newAccountId === currentAccount) {
+        showToast('Already in this account', true);
+        return;
+      }
+      closeModal();
+      await handleAccountChange(index, newAccountId);
+    });
+  });
+  
+  // Make New button handler
+  const makeNewBtn = modal.querySelector('#makeNewBtn');
+  makeNewBtn.addEventListener('click', async () => {
+    const newAccountId = makeNewBtn.getAttribute('data-account');
+    closeModal();
+    await handleAccountChange(index, newAccountId);
+  });
+  
+  // Escape key to close
+  const escHandler = (e) => {
+    if (e.key === 'Escape') {
+      closeModal();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
+}
+
+// Handle account change
+async function handleAccountChange(index, newAccountId) {
+  const capture = findCaptureByIndex(index);
+  if (!capture) return;
+  
+  // Update capture with the new account identifier
+  capture.accountIdentifier = newAccountId;
+  
+  // IMPORTANT: Clear sortOrders since the capture is moving to a new filter view
+  // It will get a new sort position when the user reorders in the new view
+  capture.sortOrders = {};
+  
+  await saveCaptures();
+  
+  // Save filter state before reload
+  saveFilterState();
+  
+  // Refresh to show updated organization
+  showToast('✓ Moved to account - refreshing...');
+  setTimeout(() => {
+    location.reload();
+  }, 800);
+}
+
 // Save captures to storage
 async function saveCaptures() {
   try {
@@ -853,6 +2087,7 @@ async function saveCaptures() {
   }
 }
 
+// Open Matchbox modal
 // Show toast notification
 function showToast(message, isError = false) {
   const toast = document.createElement('div');

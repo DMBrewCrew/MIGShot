@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MIGShot Settings</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f3ed;
+      margin: 0;
+      padding: 0;
+    }
+    .header {
+      background: linear-gradient(135deg, #2B5F6F 0%, #1a3d48 100%);
+      padding: 18px;
+      text-align: center;
+      border-bottom: 2px solid #9B9565;
+    }
+    .header h1 {
+      color: white;
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+    }
+    .container {
+      max-width: 520px;
+      margin: 30px auto;
+      background: white;
+      border: 1px solid #9B9565;
+      border-radius: 8px;
+      padding: 24px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+    .field {
+      margin-bottom: 18px;
+    }
+    .field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #2B5F6F;
+      margin-bottom: 6px;
+    }
+    .field input {
+      width: 100%;
+      padding: 9px;
+      border: 1px solid #9B9565;
+      border-radius: 4px;
+      font-size: 13px;
+      box-sizing: border-box;
+    }
+    .field .hint {
+      font-size: 10px;
+      color: #7a7550;
+      margin-top: 4px;
+    }
+    .token-row {
+      display: flex;
+      gap: 8px;
+    }
+    .token-row input {
+      flex: 1;
+    }
+    .token-row button {
+      width: auto;
+      padding: 0 14px;
+      margin: 0;
+    }
+    button {
+      padding: 10px 18px;
+      background: linear-gradient(135deg, #2B5F6F 0%, #1a3d48 100%);
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    button:hover { background: linear-gradient(135deg, #1a3d48 0%, #2B5F6F 100%); }
+    button:disabled {
+      background: #ccc;
+      color: #666;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    button.secondary {
+      background: linear-gradient(135deg, #9B9565 0%, #7a7550 100%);
+    }
+    button.secondary:hover { background: linear-gradient(135deg, #7a7550 0%, #9B9565 100%); }
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 22px;
+    }
+    .status {
+      margin-top: 18px;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      display: none;
+    }
+    .status.show { display: block; }
+    .status.ok { background: #d4edda; color: #155724; border-left: 3px solid #28a745; }
+    .status.err { background: #fadbd8; color: #c0392b; border-left: 3px solid #c0392b; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>MIGShot Settings</h1>
+  </div>
+  <div class="container">
+    <div class="field">
+      <label for="urlInput">Sphere Platform URL</label>
+      <input type="text" id="urlInput" placeholder="https://sphere.example.com">
+      <div class="hint">Base URL only — no trailing slash. Example: <code>http://127.0.0.1:8000</code></div>
+    </div>
+    <div class="field">
+      <label for="tokenInput">API Token</label>
+      <div class="token-row">
+        <input type="password" id="tokenInput" placeholder="paste API token">
+        <button type="button" class="secondary" id="toggleShowBtn">Show</button>
+      </div>
+      <div class="hint">Generate at <code>&lt;url&gt;/settings</code> after logging into Sphere.</div>
+    </div>
+    <div class="actions">
+      <button type="button" class="secondary" id="testBtn">Test Connection</button>
+      <button type="button" id="saveBtn">Save Settings</button>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>
