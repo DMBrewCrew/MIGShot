@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Sphere MIGshot",
   "version": "8.0.0",
-  "description": "Sphere Investigations — professional content capture for investigative reports (freeze-first capture). © 2025 Anthony Klarich / Marshall Investigative Group",
+  "description": "Freeze-first content capture for investigative reports — sends captured posts and pages straight into Sphere Nexus.",
   "permissions": [
     "activeTab",
     "scripting",
